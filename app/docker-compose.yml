@@ -1,0 +1,19 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: grc-db
+    restart: unless-stopped
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: grc
+      POSTGRES_PASSWORD: grc
+      POSTGRES_DB: grc
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grc"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes:
+  pgdata:

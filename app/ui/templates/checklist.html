@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checklist</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Checklist for {{ audit.name }}</h1>
+        <a href="/audits" class="btn">Back to Audits</a>
+        <table class="checklist-table">
+            <thead>
+                <tr>
+                    <th>Question</th>
+                    <th>Expected Evidence</th>
+                    <th>Response</th>
+                    <th>Notes</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in checklist_items %}
+                    <tr>
+                        <td>{{ item.question }}</td>
+                        <td>{{ item.expected_evidence }}</td>
+                        <td>
+                            <textarea rows="2" name="response">{{ item.response or '' }}</textarea>
+                        </td>
+                        <td>
+                            <textarea rows="2" name="notes">{{ item.notes or '' }}</textarea>
+                        </td>
+                        <td>
+                            <select name="status">
+                                <option value="pending" {% if item.status == 'pending' %}selected{% endif %}>Pending</option>
+                                <option value="in_progress" {% if item.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                                <option value="completed" {% if item.status == 'completed' %}selected{% endif %}>Completed</option>
+                            </select>
+                        </td>
+                        <td>
+                            <button class="btn">Save</button>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

@@ -1,7 +1,7 @@
 """Fundación
 
 Revision ID: 0001_fundacion
-Revises:
+Revises: 
 Create Date: 2026-08-23 00:00:00
 """
 from alembic import op
@@ -117,8 +117,7 @@ create table evidence_text_extractions (
 create table evidence_text_chunks (
     id uuid primary key default gen_random_uuid(),
     tenant_id uuid not null,
-    extraction_id uuid not null
-        references evidence_text_extractions(id),
+    extraction_id uuid not null references evidence_text_extractions(id),
     evidence_file_id uuid not null references evidence_files(id),
     seq int not null,
     text text not null,
@@ -127,8 +126,7 @@ create table evidence_text_chunks (
 );
 create table evidence_vectors (
     id uuid primary key default gen_random_uuid(),
-    chunk_id uuid not null unique
-        references evidence_text_chunks(id) on delete cascade,
+    chunk_id uuid not null unique references evidence_text_chunks(id) on delete cascade,
     tenant_id uuid not null,
     model text not null,
     dim int not null,
@@ -197,8 +195,7 @@ create index idx_clients_tenant on clients(tenant_id);
 create index idx_audits_tenant on audits(tenant_id);
 create index idx_checklist_tenant on checklist_items(tenant_id);
 create index idx_evidence_tenant on evidence_files(tenant_id);
-create index idx_extractions_tenant
-    on evidence_text_extractions(tenant_id);
+create index idx_extractions_tenant on evidence_text_extractions(tenant_id);
 create index idx_chunks_tenant on evidence_text_chunks(tenant_id);
 create index idx_vectors_tenant on evidence_vectors(tenant_id);
 create index idx_jobs_tenant on ai_jobs(tenant_id);
@@ -274,8 +271,13 @@ create policy ai_analyses_tenant on ai_analyses
 create policy findings_tenant on findings
     using (tenant_id::text = current_setting('app.current_tenant_id', true))
     with check (tenant_id::text = current_setting('app.current_tenant_id', true));
+
+-- AÑADIR ESTAS DOS LÍNEAS:
+create policy audit_logs_select on audit_logs for select
+    using (tenant_id::text = current_setting('app.current_tenant_id', true));
 create policy audit_logs_insert on audit_logs for insert
     with check (tenant_id::text = current_setting('app.current_tenant_id', true));
+
 create policy standards_select on standards for select using (true);
 create policy standards_write on standards for insert
     with check (current_setting('app.is_platform_admin', true) = 'true');
@@ -296,7 +298,10 @@ drop table if exists audit_logs, findings, ai_analyses, ai_jobs,
 
 
 def upgrade() -> None:
-    op.execute(EXT)
+    try:
+        op.execute(EXT)
+    except Exception:
+        pass  # Extensión ya creada por superuser en bootstrap de tests
     op.execute(CORE)
     op.execute(INDEXES)
     op.execute(RLS)

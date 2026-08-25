@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to Your Dashboard</h1>
+        <a href="/logout" class="btn">Logout</a>
+        <h2>Your Clients</h2>
+        <ul class="client-list">
+            {% for client in clients %}
+                <li>{{ client.name }} ({{ client.sector }}) - {{ client.country }}</li>
+            {% endfor %}
+        </ul>
+        <a href="/clients/new" class="btn">Add New Client</a>
+    </div>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audits</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Your Audits</h1>
+        <a href="/dashboard" class="btn">Back to Dashboard</a>
+        <a href="/audits/new" class="btn">Add New Audit</a>
+        <ul class="audit-list">
+            {% for audit in audits %}
+                <li>
+                    <h3>{{ audit.name }}</h3>
+                    <p>Client: {{ audit.client_name }}</p>
+                    <p>Standard: {{ audit.standard_name }}</p>
+                    <p>Status: {{ audit.status }}</p>
+                    <a href="/audits/{{ audit.id }}/checklist" class="btn">View Checklist</a>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>

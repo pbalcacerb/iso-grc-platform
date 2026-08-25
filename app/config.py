@@ -10,10 +10,10 @@ def _env(key: str, default: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     DATABASE_URL: str = _env(
-        "DATABASE_URL", "postgresql+psycopg://grc:grc@localhost:5432/grc"
+        "DATABASE_URL", "postgresql+psycopg2://grc:grc@localhost:5432/grc"
     )
     TEST_DATABASE_URL: str = _env(
-        "TEST_DATABASE_URL", "postgresql+psycopg://grc:grc@localhost:5432/grc_test"
+        "TEST_DATABASE_URL", "postgresql+psycopg2://grc:grc@localhost:5432/grc_test"
     )
     SILICONFLOW_BASE_URL: str = _env(
         "SILICONFLOW_BASE_URL", "https://api.siliconflow.com/v1"

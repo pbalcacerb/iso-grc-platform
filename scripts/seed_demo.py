@@ -4,23 +4,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlalchemy import text  # noqa: E402
-
-from app.db import engine  # noqa: E402
+from sqlalchemy import text
+from app.db import engine
 
 
 def seed_demo_data() -> None:
     with engine.begin() as conn:
-        # 1. Standard (idempotente)
+        # 1. Standard (Idempotente)
         conn.execute(text("""
             INSERT INTO standards (id, code, name, version, status)
             VALUES (gen_random_uuid(), 'ISO9001-DEMO', 'ISO 9001 Demo Fixture', '2015', 'active')
             ON CONFLICT (code) DO NOTHING
         """))
 
-        std_id = conn.execute(text(
-            "SELECT id FROM standards WHERE code = 'ISO9001-DEMO'"
-        )).scalar()
+        std_id = conn.execute(text("SELECT id FROM standards WHERE code = 'ISO9001-DEMO'")).scalar()
 
         clauses_data = [
             ("4", "Context", "Understanding the organization"),

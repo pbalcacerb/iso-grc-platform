@@ -1,5 +1,6 @@
-# Middleware for handling sessions and RLS
+"""Middleware que extrae tenant_id/user_id de la cookie y lo inyecta en la DB."""
 import re
+import uuid
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -7,23 +8,29 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 class SessionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Parse session cookie
         session_cookie = request.cookies.get("session")
-        tenant_id: int | None = None
-        user_id: int | None = None
+        tenant_id: uuid.UUID | None = None
+        user_id: uuid.UUID | None = None
 
         if session_cookie:
-            # Extract tenant_id and user_id from cookie
-            tenant_match = re.search(r"tenant_id=(\d+)", session_cookie)
-            user_match = re.search(r"user_id=(\d+)", session_cookie)
+            # Formato esperado: "tenant=<uuid>;user=<uuid>"
+            match_t = re.search(r"tenant=([a-f0-9\-]+)", session_cookie)
+            match_u = re.search(r"user=([a-f0-9\-]+)", session_cookie)
+            if match_t:
+                try:
+                    tenant_id = uuid.UUID(match_t.group(1))
+                except ValueError:
+                    pass
+            if match_u:
+                try:
+                    user_id = uuid.UUID(match_u.group(1))
+                except ValueError:
+                    pass
 
-            if tenant_match and user_match:
-                tenant_id = int(tenant_match.group(1))
-                user_id = int(user_match.group(1))
-
-        # Set current_tenant_id and current_user_id on request.app
-        request.app.current_tenant_id = tenant_id
-        request.app.current_user_id = user_id
+        # Inyectar en la conexión de la request (para endpoints que usen engine directamente)
+        # Nota: Para endpoints que usen get_session_with_rls, este middleware solo valida la cookie.
+        request.state.tenant_id = tenant_id
+        request.state.user_id = user_id
 
         response = await call_next(request)
         return response

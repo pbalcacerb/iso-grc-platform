@@ -31,7 +31,7 @@ create table users (
 );
 create table standards (
     id uuid primary key default gen_random_uuid(),
-    code text not null,
+    code text not null unique,
     name text not null,
     version text not null default '',
     status text not null default 'active'

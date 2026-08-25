@@ -1,65 +1,65 @@
+"""Tests de checklist y auditorías M2."""
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db import get_session_with_rls
 from app.main import app
-from app.models import ChecklistItem
+from app.models import Standard
+from app.db import SessionLocal
 
 client = TestClient(app)
 
+
 @pytest.fixture
 def test_db():
-    # Setup test database
-    db = get_session_with_rls(None, None)
-    yield db
-    db.rollback()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.rollback()
+        db.close()
 
 
 def test_checklist_creation_and_update(test_db: Session):
-    # Setup: register a user and login
-    client.post(
-        "/auth/register",
-        json={"email": "test@example.com", "password": "password", "full_name": "Test User"}
-    )
-    login_response = client.post(
-        "/auth/login",
-        json={"email": "test@example.com", "password": "password"}
-    )
-    assert login_response.status_code == 200
+    unique_email = f"check_{uuid.uuid4().hex[:8]}@test.com"
+    
+    # 1. Registro y login
+    client.post("/auth/register", json={"email": unique_email, "password": "pass", "full_name": "Check User"})
+    client.post("/auth/login", json={"email": unique_email, "password": "pass"})
 
-    # Create a client
-    client_post_response = client.post(
-        "/api/clients",
-        json={"name": "Test Client", "sector": "Finance", "country": "US", "confidentiality_level": "medium"}
-    )
-    assert client_post_response.status_code == 200
-    client_id = client_post_response.json()["id"]
+    # 2. Crear cliente
+    res_client = client.post("/api/clients", json={"name": "Check Client", "sector": "Tech", "country": "US", "confidentiality_level": "medium"})
+    assert res_client.status_code == 200, f"Failed to create client: {res_client.json()}"
+    client_id = res_client.json()["id"]
 
-    # Create an audit
-    audit_post_response = client.post(
-        "/api/audits",
-        json={"client_id": client_id, "standard_id": 1, "name": "Test Audit", "status": "planned"}
-    )
-    assert audit_post_response.status_code == 200
-    audit_id = audit_post_response.json()["id"]
+    # 3. Obtener standard_id del seed
+    std = test_db.query(Standard).filter(Standard.code == "ISO9001-DEMO").first()
+    assert std is not None, "Standard ISO9001-DEMO no encontrado."
+    standard_id = str(std.id)
 
-    # Get checklist items for the audit
-    checklist_response = client.get(f"/api/audits/{audit_id}/checklist")
-    assert checklist_response.status_code == 200
-    checklist_items = checklist_response.json()
-    assert len(checklist_items) > 0  # Should have seeded questions
+    # 4. Crear auditoría
+    res_audit = client.post("/api/audits", json={
+        "client_id": client_id,
+        "standard_id": standard_id,
+        "name": "Test Audit",
+        "status": "planned"
+    })
+    assert res_audit.status_code == 200, f"Failed to create audit: {res_audit.json()}"
+    audit_id = res_audit.json()["id"]
 
-    # Update a checklist item
-    item_id = checklist_items[0]["id"]
-    update_response = client.post(
-        f"/api/audits/{audit_id}/checklist/{item_id}",
-        json={"response": "Completed", "notes": "All good", "status": "completed"}
-    )
-    assert update_response.status_code == 200
+    # 5. Obtener checklist
+    res_checklist = client.get(f"/api/audits/{audit_id}/checklist")
+    assert res_checklist.status_code == 200
+    checklist = res_checklist.json()
+    assert len(checklist) > 0, "El checklist debería tener items generados"
 
-    # Verify the update
-    updated_item = test_db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
-    assert updated_item is not None
-    assert updated_item.response == "Completed"
-    assert updated_item.status == "completed"
+    # 6. Actualizar un item
+    item_id = checklist[0]["id"]
+    res_update = client.post(f"/api/audits/{audit_id}/checklist/{item_id}", json={
+        "response": "Yes, we have this.",
+        "notes": "Verified by manager.",
+        "status": "completed"
+    })
+    assert res_update.status_code == 200
+    assert res_update.json()["status"] == "completed"

@@ -1,55 +1,64 @@
-from uuid import uuid4
+"""Registro de usuario con tenant automático."""
+import uuid
 
 import argon2
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-from app.models import Membership, Tenant, User
+from app.db import get_db
+from app.models import User, Tenant, Membership
 
 router = APIRouter()
+hasher = argon2.PasswordHasher()
+
 
 class RegisterRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
     full_name: str
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post("/register")
-def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    # Validate email uniqueness
-    existing_user = db.query(User).filter(User.email == request.email).first()
-    if existing_user:
+def register(request: RegisterRequest, db: Session = Depends(get_db)) -> dict:
+    # Validar email único
+    existing = db.query(User).filter(User.email == request.email).first()
+    if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Hash password with argon2
-    hasher = argon2.PasswordHasher()
-    password_hash = hasher.hash(request.password)
+    # Crear tenant con slug único
+    local_part = request.email.split("@")[0]
+    slug = f"{local_part}-{uuid.uuid4().hex[:6]}"
 
-    # Create tenant with unique slug (localpart + UUID suffix)
-    localpart = request.email.split("@")[0].lower().replace(".", "-")
-    tenant_slug = f"{localpart}-{uuid4().hex[:6]}"
-    tenant = Tenant(name=request.full_name + "'s Tenant", slug=tenant_slug)
+    tenant = Tenant(
+        name=f"{request.full_name}'s Tenant",
+        slug=slug,
+        status="active",
+    )
     db.add(tenant)
-    db.commit()
-    db.refresh(tenant)
+    db.flush()  # Obtiene el ID del tenant
 
-    # Create user
-    user = User(email=request.email, password_hash=password_hash, full_name=request.full_name)
+    # Crear usuario
+    user = User(
+        email=request.email,
+        password_hash=hasher.hash(request.password),
+        full_name=request.full_name,
+        status="active",
+    )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.flush()
 
-    # Create membership (user, tenant, role='owner')
-    membership = Membership(user_id=user.id, tenant_id=tenant.id, role="owner")
+    # Crear membership
+    membership = Membership(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        role="owner",
+    )
     db.add(membership)
     db.commit()
 
-    return {"message": "Registration successful"}
+    return {
+        "message": "Registration successful",
+        "user_id": str(user.id),
+        "tenant_id": str(tenant.id),
+    }

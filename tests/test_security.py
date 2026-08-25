@@ -29,8 +29,6 @@ CLIENT_B = uuid.uuid4()
 
 @pytest.fixture(scope="session")
 def bootstrap() -> Iterator[Engine]:
-    """Idempotent setup: superuser crea extensión, owner corre migraciones."""
-    # 1) Crear roles si no existen
     maintenance = create_engine("postgresql+psycopg://grc:grc@localhost:5432/postgres")
     with maintenance.connect() as conn:
         conn.execution_options(isolation_level="AUTOCOMMIT")
@@ -47,18 +45,15 @@ def bootstrap() -> Iterator[Engine]:
             "END IF; END $$"
         ))
 
-    # 2) Recrear DB con owner grc_owner
     with maintenance.connect() as conn:
         conn.execution_options(isolation_level="AUTOCOMMIT")
         conn.execute(text("DROP DATABASE IF EXISTS grc_test WITH (FORCE)"))
         conn.execute(text("CREATE DATABASE grc_test OWNER grc_owner"))
 
-    # 3) Superuser (grc) crea la extensión vector en grc_test
     with create_engine(BOOT_URL).connect() as conn:
         conn.execution_options(isolation_level="AUTOCOMMIT")
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
-    # 4) Owner (grc_owner) corre alembic (tablas, RLS, políticas)
     alembic_exe = os.path.join(sys.prefix, "Scripts", "alembic.exe")
     env = {**os.environ, "DATABASE_URL": OWNER_URL}
     proc = subprocess.run(
@@ -67,7 +62,6 @@ def bootstrap() -> Iterator[Engine]:
     if proc.returncode != 0:
         raise RuntimeError(f"alembic falló:\n{proc.stdout}\n{proc.stderr}")
 
-    # 5) Grants a grc_app
     with create_engine(OWNER_URL).begin() as conn:
         conn.execute(text("GRANT USAGE ON SCHEMA public TO grc_app"))
         conn.execute(text(

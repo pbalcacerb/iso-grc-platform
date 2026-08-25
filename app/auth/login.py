@@ -1,45 +1,48 @@
+"""Login endpoint."""
+import uuid
 import argon2
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-from app.models import User
+from app.db import get_db
+from app.models import User, Membership
 
 router = APIRouter()
+hasher = argon2.PasswordHasher()
+
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post("/login")
-def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    # Verify user exists
+def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict:
     user = db.query(User).filter(User.email == request.email).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Verify password hash
-    hasher = argon2.PasswordHasher()
     try:
         hasher.verify(user.password_hash, request.password)
     except argon2.exceptions.VerifyMismatchError:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Create session cookie with tenant_id and user_id
+    membership = db.query(Membership).filter(Membership.user_id == user.id).first()
+    if not membership:
+        raise HTTPException(status_code=401, detail="User has no tenant")
+
+    tenant_id = str(membership.tenant_id)
+    user_id = str(user.id)
+
+    # Formato exacto que espera _get_tenant_from_cookie
+    session_value = f"tenant={tenant_id};user={user_id}"
     response.set_cookie(
         key="session",
-        value=f"tenant_id={user.memberships[0].tenant_id};user_id={user.id}",
+        value=session_value,
         httponly=True,
-        secure=True,
-        samesite="lax"
+        samesite="lax",
+        max_age=86400,  # 1 día
     )
 
-    return {"message": "Login successful"}
+    return {"message": "Login successful", "user_id": user_id, "tenant_id": tenant_id}

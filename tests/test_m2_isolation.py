@@ -1,54 +1,52 @@
+"""Tests de aislamiento de tenants M2."""
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db import get_session_with_rls
 from app.main import app
+from app.db import SessionLocal
 
 client = TestClient(app)
 
+
 @pytest.fixture
 def test_db():
-    # Setup test database
-    db = get_session_with_rls(None, None)
-    yield db
-    db.rollback()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.rollback()
+        db.close()
 
 
 def test_tenant_isolation(test_db: Session):
-    # Setup: register two users (tenant A and tenant B)
-    client.post(
-        "/auth/register",
-        json={"email": "userA@example.com", "password": "password", "full_name": "User A"}
-    )
-    client.post(
-        "/auth/register",
-        json={"email": "userB@example.com", "password": "password", "full_name": "User B"}
-    )
+    email_a = f"userA_{uuid.uuid4().hex[:8]}@test.com"
+    email_b = f"userB_{uuid.uuid4().hex[:8]}@test.com"
 
-    # Login as user A and create a client
-    login_response = client.post(
-        "/auth/login",
-        json={"email": "userA@example.com", "password": "password"}
-    )
-    assert login_response.status_code == 200
-
-    # Create a client for tenant A
-    client_post_response = client.post(
-        "/api/clients",
-        json={"name": "Client A", "sector": "Technology", "country": "US", "confidentiality_level": "high"}
-    )
-    assert client_post_response.status_code == 200
-
-    # Login as user B and verify they cannot see tenant A's client
-    login_response = client.post(
-        "/auth/login",
-        json={"email": "userB@example.com", "password": "password"}
-    )
-    assert login_response.status_code == 200
-
-    # List clients for tenant B
-    clients_response = client.get("/api/clients")
-    assert clients_response.status_code == 200
-    clients = clients_response.json()
-    assert len(clients) == 0  # Tenant B should have no clients
+    # 1. User A se registra y hace login
+    client.post("/auth/register", json={"email": email_a, "password": "pass", "full_name": "User A"})
+    client.post("/auth/login", json={"email": email_a, "password": "pass"})
+    
+    res_a = client.post("/api/clients", json={"name": "Client A", "sector": "Tech", "country": "US", "confidentiality_level": "high"})
+    assert res_a.status_code == 200, f"Failed to create client A: {res_a.json()}"
+    
+    # 2. User B se registra y hace login (sobreescribe la cookie del TestClient)
+    client.post("/auth/register", json={"email": email_b, "password": "pass", "full_name": "User B"})
+    client.post("/auth/login", json={"email": email_b, "password": "pass"})
+    
+    # User B lista clientes: debería estar vacío
+    res_b_list = client.get("/api/clients")
+    assert res_b_list.status_code == 200
+    assert len(res_b_list.json()) == 0, f"User B should see 0 clients, but saw: {res_b_list.json()}"
+    
+    # User B crea su propio cliente
+    res_b_create = client.post("/api/clients", json={"name": "Client B", "sector": "Finance", "country": "US", "confidentiality_level": "medium"})
+    assert res_b_create.status_code == 200
+    
+    # User B lista de nuevo: solo ve a Client B
+    res_b_list2 = client.get("/api/clients")
+    assert res_b_list2.status_code == 200
+    clients_b2 = res_b_list2.json()
+    assert len(clients_b2) == 1
+    assert clients_b2[0]["name"] == "Client B"

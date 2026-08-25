@@ -1,112 +1,146 @@
-from uuid import UUID
+"""Endpoints de auditorías y checklist."""
+import re
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-from app.models import Audit, ChecklistItem, Client, QuestionPack
+from app.db import get_db
+from app.models import Audit, ChecklistItem, QuestionPack, Clause
 
-router = APIRouter()
+router = APIRouter(prefix="/api", tags=["audits"])
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 class AuditCreate(BaseModel):
-    client_id: UUID
-    standard_id: UUID
+    client_id: uuid.UUID
+    standard_id: uuid.UUID
     name: str
     status: str = "planned"
 
+
 class ChecklistUpdate(BaseModel):
-    response: str
-    notes: str
-    status: str
+    response: str = ""
+    notes: str = ""
+    status: str = "pending"
+
+
+def _get_tenant_from_cookie(request: Request) -> uuid.UUID | None:
+    session = request.cookies.get("session")
+    if not session:
+        return None
+    match = re.search(r"tenant=([a-f0-9\-]{36})", session)
+    if match:
+        try:
+            return uuid.UUID(match.group(1))
+        except ValueError:
+            return None
+    return None
+
 
 @router.post("/audits")
 def create_audit(
     audit: AuditCreate,
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> dict:
-    # Get tenant_id from the session cookie
-    session = request.cookies.get("session")
-    if not session:
-        raise HTTPException(status_code=403, detail="Session cookie missing")
-    
-    # Parse session cookie (format: "tenant_id=<uuid>;user_id=<uuid>")
-    tenant_part = next((p for p in session.split(";") if p.startswith("tenant_id=")), None)
-    if not tenant_part:
-        raise HTTPException(status_code=403, detail="Tenant ID missing in session")
-    
-    tenant_id = UUID(tenant_part.split("=")[1])
+    tenant_id = _get_tenant_from_cookie(request)
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    # Verify client exists
-    client = db.query(Client).filter(Client.id == audit.client_id).first()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    # Create the audit
     db_audit = Audit(
+        tenant_id=tenant_id,
         client_id=audit.client_id,
         standard_id=audit.standard_id,
         name=audit.name,
         status=audit.status,
-        tenant_id=tenant_id
     )
     db.add(db_audit)
     db.commit()
     db.refresh(db_audit)
 
-    # Create checklist items from question packs
-    question_packs = db.query(QuestionPack).all()
-    for qp in question_packs:
-        checklist_item = ChecklistItem(
-            audit_id=db_audit.id,
-            question_pack_id=qp.id,
-            status="pending"
-        )
-        db.add(checklist_item)
+    # Crear checklist items automáticamente desde question_packs
+    clauses = db.query(Clause).filter(Clause.standard_id == audit.standard_id).all()
+    for clause in clauses:
+        packs = db.query(QuestionPack).filter(QuestionPack.clause_id == clause.id).all()
+        for pack in packs:
+            item = ChecklistItem(
+                tenant_id=tenant_id,
+                audit_id=db_audit.id,
+                clause_id=clause.id,
+                question_pack_id=pack.id,
+                status="pending",
+            )
+            db.add(item)
     db.commit()
 
-    return {"id": db_audit.id, **audit.model_dump()}
+    return {
+        "id": str(db_audit.id),
+        "client_id": str(audit.client_id),
+        "standard_id": str(audit.standard_id),
+        "name": audit.name,
+        "status": audit.status,
+    }
+
 
 @router.get("/audits/{audit_id}/checklist")
-def get_checklist(audit_id: UUID, db: Session = Depends(get_db)) -> list[dict]:
-    checklist_items = db.query(ChecklistItem).filter(ChecklistItem.audit_id == audit_id).all()
+def get_checklist(
+    audit_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    tenant_id = _get_tenant_from_cookie(request)
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    items = (
+        db.query(ChecklistItem)
+        .filter(ChecklistItem.audit_id == audit_id, ChecklistItem.tenant_id == tenant_id)
+        .all()
+    )
     return [
         {
-            "id": item.id,
-            "question": item.question_pack.question,
-            "expected_evidence": item.question_pack.expected_evidence,
-            "response": item.response,
-            "notes": item.notes,
-            "status": item.status
+            "id": str(i.id),
+            "audit_id": str(i.audit_id),
+            "clause_id": str(i.clause_id),
+            "question_pack_id": str(i.question_pack_id),
+            "status": i.status,
+            "response": i.response,
+            "notes": i.notes,
         }
-        for item in checklist_items
+        for i in items
     ]
+
 
 @router.post("/audits/{audit_id}/checklist/{item_id}")
 def update_checklist_item(
-    audit_id: UUID, item_id: UUID, update: ChecklistUpdate, db: Session = Depends(get_db)
+    audit_id: uuid.UUID,
+    item_id: uuid.UUID,
+    update: ChecklistUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
 ) -> dict:
-    checklist_item = db.query(ChecklistItem).filter(
-        ChecklistItem.id == item_id,
-        ChecklistItem.audit_id == audit_id
-    ).first()
+    tenant_id = _get_tenant_from_cookie(request)
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    if not checklist_item:
+    item = (
+        db.query(ChecklistItem)
+        .filter(ChecklistItem.id == item_id, ChecklistItem.tenant_id == tenant_id)
+        .first()
+    )
+    if not item:
         raise HTTPException(status_code=404, detail="Checklist item not found")
 
-    checklist_item.response = update.response
-    checklist_item.notes = update.notes
-    checklist_item.status = update.status
-
+    item.response = update.response
+    item.notes = update.notes
+    item.status = update.status
     db.commit()
-    db.refresh(checklist_item)
+    db.refresh(item)
 
-    return {"message": "Checklist item updated successfully"}
+    return {
+        "id": str(item.id),
+        "status": item.status,
+        "response": item.response,
+        "notes": item.notes,
+    }

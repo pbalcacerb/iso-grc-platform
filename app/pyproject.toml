@@ -18,3 +18,7 @@ select = ["E","F","I","UP","B","SIM","S"]
 strict = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false

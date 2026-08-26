@@ -102,6 +102,20 @@ def seed_demo_data() -> None:
                 "INSERT INTO checklist_items (tenant_id, audit_id, clause_id, question_pack_id) "
                 "VALUES (:t, :a, :c, :q)"
             ), {"t": tenant_id, "a": audit_id, "c": cid, "q": qpid})
+        conn.execute(text(
+            "INSERT INTO users (email, password_hash, full_name) "
+            "VALUES ('reviewer@grc.com', :h, 'Reviewer Demo') "
+            "ON CONFLICT (email) DO NOTHING"
+        ), {"h": ph.hash("SecurePass123!")})
+        
+        rev_id = conn.execute(text(
+            "SELECT id FROM users WHERE email = 'reviewer@grc.com'"
+        )).scalar()
+        conn.execute(text(
+            "INSERT INTO memberships (user_id, tenant_id, role) "
+            "SELECT :u, :t, 'reviewer' WHERE NOT EXISTS ("
+            "SELECT 1 FROM memberships WHERE user_id = :u AND tenant_id = :t)"
+        ), {"u": rev_id, "t": tenant_id})
 
     print("✅ Demo data seeded successfully (idempotent).")
 

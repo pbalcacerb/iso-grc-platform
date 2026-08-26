@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, String, Integer, Text, func
+from sqlalchemy import JSON, ForeignKey, String, Integer, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -323,8 +323,8 @@ class AIAnalysis(Base):
         default="insufficient_evidence",
         nullable=False
     )
-    gaps: Mapped[str] = mapped_column(String, default="[]", nullable=False)
-    risks: Mapped[str] = mapped_column(String, default="[]", nullable=False)
+    gaps: Mapped[list] = mapped_column(JSON, default=list)          # ← Debe ser JSON, no String
+    risks: Mapped[list] = mapped_column(JSON, default=list)         # ← Debe ser JSON, no String
     confidence: Mapped[Optional[float]] = mapped_column()
     requires_human_review: Mapped[bool] = mapped_column(default=True, nullable=False)
     review_status: Mapped[str] = mapped_column(
@@ -333,10 +333,9 @@ class AIAnalysis(Base):
         nullable=False
     )
     reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    cited_chunk_ids: Mapped[str] = mapped_column(String, default="[]", nullable=False)
+    cited_chunk_ids: Mapped[list] = mapped_column(JSON, default=list)  # ← Debe ser JSON, no String
     provider: Mapped[str] = mapped_column(String, default="", nullable=False)
     tokens_est: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    error_message: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(),
         nullable=False

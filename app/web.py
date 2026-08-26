@@ -16,6 +16,7 @@ from app.models import (
     EvidenceFile, Membership, QuestionPack, Tenant, User,
 )
 from app.worker.assess import assess_compliance
+from app.security import parse_session, require_role
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -118,8 +119,17 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "id": str(a.id), "name": a.name, "status": a.status,
             "client_name": client.name if client else "Desconocido",
         })
-    return templates.TemplateResponse(request, "dashboard.html", {"audits": audit_data})
 
+    role = None
+    if tenant_id:
+        m = db.query(Membership).filter(
+            Membership.tenant_id == tenant_id,
+        ).first()
+        role = m.role if m else None
+    return templates.TemplateResponse(
+        request, "dashboard.html", {"audits": audit_data, "role": role}
+    )
+    
 
 @router.get("/audit/{audit_id}", response_class=HTMLResponse)
 def audit_detail(
@@ -160,11 +170,11 @@ def analyze(
     request: Request,
     audit_id: str,
     file: UploadFile = File(...),
+    membership: Membership = Depends(require_role("owner", "auditor")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    tenant_id, user_id = _parse_session(request)
-    if not tenant_id:
-        return RedirectResponse(url="/login", status_code=303)
+    tenant_id = membership.tenant_id
+    user_id = membership.user_id
 
     content = file.file.read()
     sha = hashlib.sha256(content).hexdigest()
@@ -185,3 +195,39 @@ def analyze(
 
     assess_compliance(evidence.id, uuid.UUID(audit_id), db, tenant_id=tenant_id)
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+
+@router.get("/users", response_class=HTMLResponse)
+def manage_users(
+    request: Request,
+    membership: Membership = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    rows = (
+        db.query(User, Membership)
+        .join(Membership, Membership.user_id == User.id)
+        .filter(Membership.tenant_id == membership.tenant_id)
+        .all()
+    )
+    users = [{"email": u.email, "full_name": u.full_name, "role": m.role} for u, m in rows]
+    return templates.TemplateResponse(request, "manage_users.html", {"users": users})
+
+
+@router.post("/users/invite")
+def invite_user(
+    email: str = Form(...),
+    full_name: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...),
+    membership: Membership = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    if role not in ("auditor", "reviewer", "viewer"):
+        return RedirectResponse(url="/users", status_code=303)
+    if db.query(User).filter(User.email == email).first():
+        return RedirectResponse(url="/users", status_code=303)
+    user = User(email=email, password_hash=hasher.hash(password), full_name=full_name)
+    db.add(user)
+    db.flush()
+    db.add(Membership(user_id=user.id, tenant_id=membership.tenant_id, role=role))
+    db.commit()
+    return RedirectResponse(url="/users", status_code=303)

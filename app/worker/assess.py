@@ -33,13 +33,14 @@ def assess_compliance(
             audit_id=audit_id,
             evidence_file_id=evidence_file_id,
             compliance_assessment="insufficient_evidence",
-            gaps="[]",
-            risks="[]",
+            gaps=[],                    # ← Lista vacía nativa
+            risks=[],                   # ← Lista vacía nativa
             confidence=0.0,
             requires_human_review=False,
             review_status="completed",
             tokens_est=0,
             provider="none",
+            cited_chunk_ids=[],         # ← Lista vacía nativa
         )
         db.add(analysis)
         db.commit()
@@ -60,13 +61,14 @@ def assess_compliance(
         audit_id=audit_id,
         evidence_file_id=evidence_file_id,
         compliance_assessment="compliant",
-        gaps="[]",
-        risks="[]",
+        gaps=[],                        # ← CAMBIO: Lista vacía nativa (NO string "[]")
+        risks=[],                       # ← CAMBIO: Lista vacía nativa (NO string "[]")
         confidence=confidence,
         requires_human_review=requires_review,
         review_status="completed" if not requires_review else "pending",
         tokens_est=150,
         provider="simulated",
+        cited_chunk_ids=[],             # ← AÑADIDO: Lista vacía nativa
     )
     db.add(analysis)
     db.commit()

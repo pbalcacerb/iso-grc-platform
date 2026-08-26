@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container" style="max-width: 600px; margin: 2rem auto;">
+    <h1>Crear Nuevo Cliente</h1>
+    
+    <form method="POST" action="/web/clients" style="margin-top: 1rem;">
+        <div class="form-group">
+            <label for="name">Nombre del Cliente</label>
+            <input type="text" id="name" name="name" required 
+                   style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+        </div>
+        
+        <div class="form-group">
+            <label for="sector">Sector</label>
+            <input type="text" id="sector" name="sector" 
+                   style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+        </div>
+        
+        <div class="form-group">
+            <label for="country">País</label>
+            <input type="text" id="country" name="country" 
+                   style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+        </div>
+        
+        <div class="form-group">
+            <label for="confidentiality_level">Nivel de Confidencialidad</label>
+            <select id="confidentiality_level" name="confidentiality_level" 
+                    style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+                <option value="internal">Interno</option>
+                <option value="confidential">Confidencial</option>
+                <option value="public">Público</option>
+            </select>
+        </div>
+        
+        <div style="margin-top: 1.5rem;">
+            <button type="submit" class="btn">Crear Cliente</button>
+            <a href="/dashboard" class="btn" style="background: #64748b; margin-left: 0.5rem;">Cancelar</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

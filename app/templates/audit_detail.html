@@ -1,11 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
+
 <div class="header">
     <div>
         <a href="/dashboard" style="color: #64748b; text-decoration: none;">← Volver al Panel</a>
         <h1 style="margin-top: 0.5rem;">{{ audit.name }}</h1>
     </div>
     <span class="badge badge-warning">{{ audit.status }}</span>
+</div>
+
+{% set total_items = checklist|length %}
+{% set completed_items = checklist|selectattr('status', 'equalto', 'completed')|list|length %}
+{% set progress = (completed_items / total_items * 100) if total_items > 0 else 0 %}
+
+<div style="margin-bottom: 1rem;">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+        <span>Progreso de Auditoría</span>
+        <span>{{ completed_items }}/{{ total_items }} evidencias ({{ progress|round }}%)</span>
+    </div>
+    <div style="background: #e2e8f0; border-radius: 4px; height: 20px; overflow: hidden;">
+        <div style="--progress-width: {{ progress }}%; background: var(--primary); height: 100%; width: var(--progress-width); transition: width 0.3s;"></div>
+    </div>
 </div>
 
 <div class="card">
@@ -71,4 +86,5 @@
         </form>
     {% endif %}
 </div>
+
 {% endblock %}

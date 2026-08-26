@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import (
     AIAnalysis, Audit, ChecklistItem, Clause, Client,
-    EvidenceFile, Membership, QuestionPack, Tenant, User,
+    EvidenceFile, Membership, QuestionPack, Standard, Tenant, User,
 )
-from app.worker.assess import assess_compliance
 from app.security import parse_session, require_role
+from app.worker.assess import assess_compliance
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -129,7 +129,91 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     return templates.TemplateResponse(
         request, "dashboard.html", {"audits": audit_data, "role": role}
     )
+
+
+@router.get("/clients/new", response_class=HTMLResponse)
+def new_client(
+    request: Request,
+    membership: Membership = Depends(require_role("owner", "auditor")),
+) -> HTMLResponse:
+    return templates.TemplateResponse(request, "create_client.html")
+
+
+@router.post("/web/clients")
+def create_client_web(
+    request: Request,
+    name: str = Form(...),
+    sector: str = Form(""),
+    country: str = Form(""),
+    confidentiality_level: str = Form("internal"),
+    membership: Membership = Depends(require_role("owner", "auditor")),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    client = Client(
+        tenant_id=membership.tenant_id,
+        name=name,
+        sector=sector,
+        country=country,
+        confidentiality_level=confidentiality_level,
+        status="active",
+    )
+    db.add(client)
+    db.commit()
+    return RedirectResponse(url="/dashboard", status_code=303)
+
+
+@router.get("/audits/new", response_class=HTMLResponse)
+def new_audit(
+    request: Request,
+    membership: Membership = Depends(require_role("owner", "auditor")),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    clients = db.query(Client).filter(Client.tenant_id == membership.tenant_id).all()
+    standards = db.query(Standard).filter(Standard.status == "active").all()
+    return templates.TemplateResponse(
+        request, "create_audit.html", {"clients": clients, "standards": standards}
+    )
+
+
+@router.post("/web/audits")
+def create_audit_web(
+    request: Request,
+    name: str = Form(...),
+    client_id: str = Form(...),
+    standard_id: str = Form(...),
+    status: str = Form("planned"),
+    membership: Membership = Depends(require_role("owner", "auditor")),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    audit = Audit(
+        tenant_id=membership.tenant_id,
+        client_id=uuid.UUID(client_id),
+        standard_id=uuid.UUID(standard_id),
+        name=name,
+        status=status,
+    )
+    db.add(audit)
+    db.flush()
     
+    question_packs = db.query(QuestionPack).join(Clause).filter(
+        Clause.standard_id == uuid.UUID(standard_id)
+    ).all()
+    
+    for qp in question_packs:
+        checklist_item = ChecklistItem(
+            tenant_id=membership.tenant_id,
+            audit_id=audit.id,
+            clause_id=qp.clause_id,
+            question_pack_id=qp.id,
+            status="pending",
+            response="",
+            notes="",
+        )
+        db.add(checklist_item)
+    
+    db.commit()
+    return RedirectResponse(url="/dashboard", status_code=303)
+
 
 @router.get("/audit/{audit_id}", response_class=HTMLResponse)
 def audit_detail(
@@ -195,6 +279,7 @@ def analyze(
 
     assess_compliance(evidence.id, uuid.UUID(audit_id), db, tenant_id=tenant_id)
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+
 
 @router.get("/users", response_class=HTMLResponse)
 def manage_users(

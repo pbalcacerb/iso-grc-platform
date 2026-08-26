@@ -35,14 +35,14 @@ def login(request: LoginRequest, response: Response, db: Session = Depends(get_d
     tenant_id = str(membership.tenant_id)
     user_id = str(user.id)
 
-    # Formato exacto que espera _get_tenant_from_cookie
+    # Formato exacto que espera el middleware
     session_value = f"tenant={tenant_id};user={user_id}"
     response.set_cookie(
         key="session",
         value=session_value,
         httponly=True,
         samesite="lax",
-        max_age=86400,  # 1 día
+        max_age=86400,
     )
 
     return {"message": "Login successful", "user_id": user_id, "tenant_id": tenant_id}

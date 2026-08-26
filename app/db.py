@@ -1,4 +1,4 @@
-"""Helper de base de datos con inyección de contexto RLS."""
+"""Helper de base de datos con UUID y contexto RLS."""
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -11,9 +11,10 @@ from app.config import settings
 engine = create_engine(settings.DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
 @contextmanager
 def get_session_with_rls(tenant_id: uuid.UUID | None, user_id: uuid.UUID | None) -> Iterator[Session]:
-    """Abre una sesión y establece el contexto RLS para la transacción."""
+    """Abre una sesión y establece el contexto RLS."""
     with Session(engine) as session:
         if tenant_id:
             session.execute(text("SELECT set_config('app.current_tenant_id', :t, true)"), {"t": str(tenant_id)})
@@ -25,6 +26,7 @@ def get_session_with_rls(tenant_id: uuid.UUID | None, user_id: uuid.UUID | None)
         except Exception:
             session.rollback()
             raise
+
 
 def get_db() -> Iterator[Session]:
     """Dependencia estándar de FastAPI."""

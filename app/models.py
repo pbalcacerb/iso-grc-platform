@@ -1,11 +1,10 @@
-"""Modelos SQLAlchemy 2.0 completos."""
+"""Modelos SQLAlchemy 2.0 con UUID para ISO GRC Platform."""
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import ForeignKey, String, Integer, Text, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
@@ -14,203 +13,376 @@ class Base(DeclarativeBase):
 
 class Tenant(Base):
     __tablename__ = "tenants"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String)
-    slug: Mapped[str] = mapped_column(String, unique=True)
-    status: Mapped[str] = mapped_column(String, default="active")
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    slug: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(),
+        nullable=False
+    )
 
 
 class User(Base):
     __tablename__ = "users"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(String, unique=True)
-    password_hash: Mapped[str] = mapped_column(String)
-    full_name: Mapped[str] = mapped_column(String, default="")
-    status: Mapped[str] = mapped_column(String, default="active")
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    full_name: Mapped[str] = mapped_column(String, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String, default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(),
+        nullable=False
+    )
 
 
 class Membership(Base):
     __tablename__ = "memberships"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"))
-    role: Mapped[str] = mapped_column(String)
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=False
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class Client(Base):
     __tablename__ = "clients"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"))
-    name: Mapped[str] = mapped_column(String)
-    sector: Mapped[str] = mapped_column(String, default="")
-    country: Mapped[str] = mapped_column(String, default="")
-    confidentiality_level: Mapped[str] = mapped_column(String, default="internal")
-    status: Mapped[str] = mapped_column(String, default="active")
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    sector: Mapped[str] = mapped_column(String, default="", nullable=False)
+    country: Mapped[str] = mapped_column(String, default="", nullable=False)
+    confidentiality_level: Mapped[str] = mapped_column(
+        String,
+        default="internal",
+        nullable=False
+    )
+    status: Mapped[str] = mapped_column(String, default="active", nullable=False)
 
 
 class Standard(Base):
     __tablename__ = "standards"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String, unique=True)
-    name: Mapped[str] = mapped_column(String)
-    version: Mapped[str] = mapped_column(String, default="")
-    status: Mapped[str] = mapped_column(String, default="active")
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    code: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    version: Mapped[str] = mapped_column(String, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String, default="active", nullable=False)
 
 
 class Clause(Base):
     __tablename__ = "clauses"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    standard_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("standards.id"))
-    number: Mapped[str] = mapped_column(String)
-    title: Mapped[str] = mapped_column(String)
-    description: Mapped[str] = mapped_column(Text, default="")
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    standard_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("standards.id"),
+        nullable=False
+    )
+    number: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
 
 class QuestionPack(Base):
     __tablename__ = "question_packs"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    clause_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("clauses.id"))
-    question: Mapped[str] = mapped_column(Text)
-    expected_evidence: Mapped[str] = mapped_column(Text, default="")
-    criteria: Mapped[str] = mapped_column(Text, default="")
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    clause_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("clauses.id"),
+        nullable=False
+    )
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_evidence: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    criteria: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class Audit(Base):
     __tablename__ = "audits"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    client_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("clients.id"))
-    standard_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("standards.id"))
-    name: Mapped[str] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, default="planned")
-    start_date: Mapped[Optional[date]] = mapped_column()
-    end_date: Mapped[Optional[date]] = mapped_column()
-    lead_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("clients.id"),
+        nullable=False
+    )
+    standard_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("standards.id"),
+        nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="planned", nullable=False)
+    start_date: Mapped[Optional[datetime]] = mapped_column()
+    end_date: Mapped[Optional[datetime]] = mapped_column()
+    lead_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
 
 
 class ChecklistItem(Base):
     __tablename__ = "checklist_items"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    audit_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("audits.id"))
-    clause_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("clauses.id"))
-    question_pack_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("question_packs.id"))
-    status: Mapped[str] = mapped_column(String, default="pending")
-    response: Mapped[str] = mapped_column(Text, default="")
-    notes: Mapped[str] = mapped_column(Text, default="")
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    audit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("audits.id"),
+        nullable=False
+    )
+    clause_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("clauses.id"),
+        nullable=False
+    )
+    question_pack_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("question_packs.id"),
+        nullable=False
+    )
+    status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
+    response: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
 
 class EvidenceFile(Base):
     __tablename__ = "evidence_files"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    audit_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("audits.id"))
-    checklist_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("checklist_items.id"))
-    original_filename: Mapped[str] = mapped_column(String)
-    mime_type: Mapped[str] = mapped_column(String)
-    file_size: Mapped[int] = mapped_column(Integer, default=0)
-    sha256: Mapped[str] = mapped_column(String)
-    storage_path: Mapped[str] = mapped_column(String)
-    classification: Mapped[str] = mapped_column(String, default="internal")
-    upload_status: Mapped[str] = mapped_column(String, default="ready")
-    extraction_status: Mapped[str] = mapped_column(String, default="pending")
-    uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    audit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("audits.id"),
+        nullable=False
+    )
+    checklist_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("checklist_items.id")
+    )
+    original_filename: Mapped[str] = mapped_column(String, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False)
+    storage_path: Mapped[str] = mapped_column(String, nullable=False)
+    classification: Mapped[str] = mapped_column(
+        String,
+        default="internal",
+        nullable=False
+    )
+    upload_status: Mapped[str] = mapped_column(
+        String,
+        default="ready",
+        nullable=False
+    )
+    extraction_status: Mapped[str] = mapped_column(
+        String,
+        default="pending",
+        nullable=False
+    )
+    uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
 
 
 class EvidenceTextExtraction(Base):
     __tablename__ = "evidence_text_extractions"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    evidence_file_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("evidence_files.id"))
-    extractor: Mapped[str] = mapped_column(String, default="utf8")
-    status: Mapped[str] = mapped_column(String, default="completed")
-    extracted_text: Mapped[str] = mapped_column(Text, default="")
-    text_sha256: Mapped[str] = mapped_column(String, default="")
-    character_count: Mapped[int] = mapped_column(Integer, default=0)
-    requested_by: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    evidence_file_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence_files.id"),
+        nullable=False
+    )
+    extractor: Mapped[str] = mapped_column(String, default="utf8", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String,
+        default="completed",
+        nullable=False
+    )
+    extracted_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String, default="", nullable=False)
+    character_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    requested_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
 
 
 class EvidenceTextChunk(Base):
     __tablename__ = "evidence_text_chunks"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    extraction_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("evidence_text_extractions.id"))
-    evidence_file_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("evidence_files.id"))
-    seq: Mapped[int] = mapped_column(Integer)
-    text: Mapped[str] = mapped_column(Text)
-    sha256: Mapped[str] = mapped_column(String, default="")
-    character_count: Mapped[int] = mapped_column(Integer, default=0)
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    extraction_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence_text_extractions.id"),
+        nullable=False
+    )
+    evidence_file_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence_files.id"),
+        nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, default="", nullable=False)
+    character_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class EvidenceVector(Base):
     __tablename__ = "evidence_vectors"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    chunk_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("evidence_text_chunks.id", ondelete="CASCADE"), unique=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    model: Mapped[str] = mapped_column(String)
-    dim: Mapped[int] = mapped_column(Integer)
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence_text_chunks.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    dim: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class AIJob(Base):
     __tablename__ = "ai_jobs"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    job_type: Mapped[str] = mapped_column(String)
-    input_ref: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    content_hash: Mapped[str] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    job_type: Mapped[str] = mapped_column(String, nullable=False)
+    input_ref: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     output_ref: Mapped[Optional[str]] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(),
+        nullable=False
+    )
     started_at: Mapped[Optional[datetime]] = mapped_column()
     completed_at: Mapped[Optional[datetime]] = mapped_column()
 
 
 class AIAnalysis(Base):
     __tablename__ = "ai_analyses"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    audit_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("audits.id"))
-    evidence_file_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("evidence_files.id"))
-    compliance_assessment: Mapped[str] = mapped_column(String, default="insufficient_evidence")
-    gaps: Mapped[str] = mapped_column(String, default="[]")
-    risks: Mapped[str] = mapped_column(String, default="[]")
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    audit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("audits.id"),
+        nullable=False
+    )
+    evidence_file_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence_files.id"),
+        nullable=False
+    )
+    compliance_assessment: Mapped[str] = mapped_column(
+        String,
+        default="insufficient_evidence",
+        nullable=False
+    )
+    gaps: Mapped[str] = mapped_column(String, default="[]", nullable=False)
+    risks: Mapped[str] = mapped_column(String, default="[]", nullable=False)
     confidence: Mapped[Optional[float]] = mapped_column()
-    requires_human_review: Mapped[bool] = mapped_column(default=True)
-    review_status: Mapped[str] = mapped_column(String, default="pending")
-    reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
-    cited_chunk_ids: Mapped[str] = mapped_column(String, default="[]")
-    provider: Mapped[str] = mapped_column(String, default="")
-    tokens_est: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    requires_human_review: Mapped[bool] = mapped_column(default=True, nullable=False)
+    review_status: Mapped[str] = mapped_column(
+        String,
+        default="pending",
+        nullable=False
+    )
+    reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    cited_chunk_ids: Mapped[str] = mapped_column(String, default="[]", nullable=False)
+    provider: Mapped[str] = mapped_column(String, default="", nullable=False)
+    tokens_est: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(),
+        nullable=False
+    )
 
 
 class Finding(Base):
     __tablename__ = "findings"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    audit_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("audits.id"))
-    checklist_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("checklist_items.id"))
-    analysis_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("ai_analyses.id"))
-    type: Mapped[str] = mapped_column(String)
-    title: Mapped[str] = mapped_column(String)
-    description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String, default="open")
-    ai_suggested: Mapped[bool] = mapped_column(default=False)
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    audit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("audits.id"),
+        nullable=False
+    )
+    checklist_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("checklist_items.id")
+    )
+    analysis_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("ai_analyses.id")
+    )
+    type: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String, default="open", nullable=False)
+    ai_suggested: Mapped[bool] = mapped_column(default=False, nullable=False)
 
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True))
-    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
-    action: Mapped[str] = mapped_column(String)
-    entity_type: Mapped[str] = mapped_column(String)
-    entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True))
-    before: Mapped[Optional[str]] = mapped_column(String)
-    after: Mapped[Optional[str]] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    entity_id: Mapped[Optional[uuid.UUID]] = mapped_column()
+    before: Mapped[Optional[str]] = mapped_column(Text)
+    after: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(),
+        nullable=False
+    )

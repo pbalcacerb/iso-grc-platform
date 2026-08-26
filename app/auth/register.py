@@ -1,4 +1,4 @@
-"""Registro de usuario con tenant automático."""
+"""Registro (API JSON, usado por tests)."""
 import uuid
 
 import argon2
@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import User, Tenant, Membership
+from app.models import Membership, Tenant, User
 
 router = APIRouter()
 hasher = argon2.PasswordHasher()
@@ -21,42 +21,24 @@ class RegisterRequest(BaseModel):
 
 @router.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)) -> dict:
-    # Validar email único
-    existing = db.query(User).filter(User.email == request.email).first()
-    if existing:
+    if db.query(User).filter(User.email == request.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Crear tenant con slug único
-    local_part = request.email.split("@")[0]
-    slug = f"{local_part}-{uuid.uuid4().hex[:6]}"
-
-    tenant = Tenant(
-        name=f"{request.full_name}'s Tenant",
-        slug=slug,
-        status="active",
-    )
+    slug = f"{request.email.split('@')[0]}-{uuid.uuid4().hex[:6]}"
+    tenant = Tenant(name=f"{request.full_name}'s Tenant", slug=slug)
     db.add(tenant)
-    db.flush()  # Obtiene el ID del tenant
+    db.flush()
 
-    # Crear usuario
     user = User(
         email=request.email,
         password_hash=hasher.hash(request.password),
         full_name=request.full_name,
-        status="active",
     )
     db.add(user)
     db.flush()
 
-    # Crear membership
-    membership = Membership(
-        user_id=user.id,
-        tenant_id=tenant.id,
-        role="owner",
-    )
-    db.add(membership)
+    db.add(Membership(user_id=user.id, tenant_id=tenant.id, role="owner"))
     db.commit()
-
     return {
         "message": "Registration successful",
         "user_id": str(user.id),

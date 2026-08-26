@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+    <div>
+        <a href="/dashboard" style="color: #64748b; text-decoration: none;">← Volver al Panel</a>
+        <h1 style="margin-top: 0.5rem;">{{ audit.name }}</h1>
+    </div>
+    <span class="badge badge-warning">{{ audit.status }}</span>
+</div>
+
+<div class="card">
+    <h3 style="margin-top: 0;">Checklist de Cumplimiento</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Cláusula</th>
+                <th>Pregunta</th>
+                <th>Estado</th>
+                <th>Respuesta</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in checklist %}
+            <tr>
+                <td>{{ item.clause_number }}</td>
+                <td>{{ item.question }}</td>
+                <td>
+                    <span class="badge {% if item.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">
+                        {{ item.status }}
+                    </span>
+                </td>
+                <td>{{ item.response or '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3 style="margin-top: 0;">Análisis de Evidencia con IA</h3>
+    
+    {% if analysis %}
+        <div style="background: #f1f5f9; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+            <p><strong>Veredicto:</strong> {{ analysis.compliance_assessment | replace('_', ' ') | title }}</p>
+            <p><strong>Confianza:</strong> {{ (analysis.confidence * 100) | round(1) }}%</p>
+            <p><strong>Revisión Humana:</strong> 
+                {% if analysis.requires_human_review %}
+                    <span class="badge badge-danger">Sí, Pendiente</span>
+                {% else %}
+                    <span class="badge badge-success">No requerida</span>
+                {% endif %}
+            </p>
+            {% if analysis.gaps != '[]' %}
+                <p><strong>Brechas detectadas:</strong> {{ analysis.gaps }}</p>
+            {% endif %}
+        </div>
+        <p style="color: var(--success); font-size: 0.9rem;">
+            ✅ Análisis completado. Tokens estimados consumidos: {{ analysis.tokens_est }}
+        </p>
+    {% else %}
+        <form method="POST" action="/audit/{{ audit.id }}/analyze" enctype="multipart/form-data" style="margin-bottom: 1rem;">
+            <div class="form-group">
+                <label>Subir Archivo de Evidencia (.txt)</label>
+                <input type="file" name="file" required>
+            </div>
+            <button type="submit" class="btn">Ejecutar Análisis de IA</button>
+            <p style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;">
+                * El sistema calculará el hash SHA-256, extraerá texto y evaluará el cumplimiento.
+                Si no hay evidencia relevante, se activará el <strong>cortocircuito</strong> para ahorrar costos de IA.
+            </p>
+        </form>
+    {% endif %}
+</div>
+{% endblock %}

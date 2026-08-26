@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+    <h1>Panel de Control</h1>
+    <a href="/auth/logout" class="btn" style="background: #64748b;">Cerrar Sesión</a>
+</div>
+
+<div class="card">
+    <h3 style="margin-top: 0;">Auditorías Activas</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Auditoría</th>
+                <th>Cliente</th>
+                <th>Estado</th>
+                <th>Acción</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for audit in audits %}
+            <tr>
+                <td>{{ audit.name }}</td>
+                <td>{{ audit.client_name }}</td>
+                <td><span class="badge badge-warning">{{ audit.status }}</span></td>
+                <td><a href="/audit/{{ audit.id }}" class="btn">Ver Detalle y Analizar</a></td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4" style="text-align: center; color: #64748b;">
+                    No hay auditorías activas. Crea una desde la API.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

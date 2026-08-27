@@ -237,11 +237,11 @@ def audit_detail(
         .all()
     )
     checklist = [
-        {"clause_number": r[1], "question": r[2], "status": r[0].status,
-         "response": r[0].response}
+        {"id": str(r[0].id), "clause_number": r[1], "question": r[2],
+         "status": r[0].status, "response": r[0].response}
         for r in rows
     ]
-    analysis = db.query(AIAnalysis).filter(AIAnalysis.audit_id == audit.id).first()
+    analysis = db.query(AIAnalysis).filter(AIAnalysis.audit_id == audit.id).order_by(AIAnalysis.created_at.desc()).first()
 
     return templates.TemplateResponse(
         request, "audit_detail.html",

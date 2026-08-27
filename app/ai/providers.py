@@ -45,7 +45,11 @@ class SiliconFlowProvider:
             )
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
-        return json.loads(content)
+        data = json.loads(content)
+        # Algunos modelos envuelven el JSON en una clave "response"
+        if isinstance(data, dict) and isinstance(data.get("response"), dict):
+            data = data["response"]
+        return data
 
     def embed(self, text: str) -> list[float]:
         with httpx.Client(timeout=60.0) as client:

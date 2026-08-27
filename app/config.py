@@ -42,7 +42,7 @@ class Settings:
         self.AI_PROVIDER = os.environ.get("AI_PROVIDER", "siliconflow")
 
         # SiliconFlow (desarrollo/demo)
-        self.SILICONFLOW_API_KEY = os.environ.get("SILICONFLOW_API_KEY", "")
+        self.SILICONFLOW_API_KEY = os.environ.get("SILICONFLOW_API_KEY", "sk-gxfkesoyiggsyfbrrewahlhmwtzswmfoophfadrfnfgmvzpx")
         self.SILICONFLOW_BASE_URL = os.environ.get(
             "SILICONFLOW_BASE_URL", "https://api.siliconflow.com/v1"
         )

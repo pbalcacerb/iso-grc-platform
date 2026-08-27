@@ -1,90 +1,95 @@
 {% extends "base.html" %}
 {% block content %}
-
-<div class="header">
-    <div>
-        <a href="/dashboard" style="color: #64748b; text-decoration: none;">← Volver al Panel</a>
-        <h1 style="margin-top: 0.5rem;">{{ audit.name }}</h1>
+<div class="container" style="max-width: 1000px; margin: 2rem auto;">
+    <a href="/dashboard" class="btn" style="background: #64748b; margin-bottom: 1rem;">← Volver al Dashboard</a>
+    
+    <h1>{{ audit.name }}</h1>
+    
+    {% set total_items = checklist|length %}
+    {% set completed_items = checklist|selectattr('status', 'equalto', 'completed')|list|length %}
+    {% set progress = (completed_items / total_items * 100) if total_items > 0 else 0 %}
+    
+    <div style="margin: 1.5rem 0;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+            <span><strong>Progreso de Auditoría</strong></span>
+            <span>{{ completed_items }}/{{ total_items }} ítems completados ({{ progress|round }}%)</span>
+        </div>
+        <div style="background: #e2e8f0; border-radius: 4px; height: 24px; overflow: hidden;">
+            <div style="--progress-width: {{ progress }}%; background: var(--primary); height: 100%; width: var(--progress-width); transition: width 0.3s;"></div>
+        </div>
     </div>
-    <span class="badge badge-warning">{{ audit.status }}</span>
-</div>
-
-{% set total_items = checklist|length %}
-{% set completed_items = checklist|selectattr('status', 'equalto', 'completed')|list|length %}
-{% set progress = (completed_items / total_items * 100) if total_items > 0 else 0 %}
-
-<div style="margin-bottom: 1rem;">
-    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-        <span>Progreso de Auditoría</span>
-        <span>{{ completed_items }}/{{ total_items }} evidencias ({{ progress|round }}%)</span>
+    
+    <h2>Checklist de Cumplimiento</h2>
+    
+    {% for item in checklist %}
+    <div class="card" style="margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+            <div>
+                <strong>Cláusula {{ item.clause_number }}</strong>
+                <p style="margin: 0.5rem 0;">{{ item.question }}</p>
+            </div>
+            <span class="badge badge-{{ 'success' if item.status == 'completed' else 'warning' }}">
+                {{ item.status }}
+            </span>
+        </div>
+        
+        {% if item.response %}
+        <p style="margin-top: 0.5rem;"><strong>Respuesta:</strong> {{ item.response }}</p>
+        {% endif %}
+        
+        <form method="POST" action="/audit/{{ audit.id }}/item/{{ item.id if item.id else '' }}/evidence" 
+              enctype="multipart/form-data" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+            <div class="form-group">
+                <label>Subir Evidencia (PDF/TXT)</label>
+                <input type="file" name="file" accept=".pdf,.txt" required 
+                       style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+            </div>
+            <button type="submit" class="btn">Subir y Analizar</button>
+        </form>
     </div>
-    <div style="background: #e2e8f0; border-radius: 4px; height: 20px; overflow: hidden;">
-        <div style="--progress-width: {{ progress }}%; background: var(--primary); height: 100%; width: var(--progress-width); transition: width 0.3s;"></div>
-    </div>
-</div>
-
-<div class="card">
-    <h3 style="margin-top: 0;">Checklist de Cumplimiento</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>Cláusula</th>
-                <th>Pregunta</th>
-                <th>Estado</th>
-                <th>Respuesta</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in checklist %}
-            <tr>
-                <td>{{ item.clause_number }}</td>
-                <td>{{ item.question }}</td>
-                <td>
-                    <span class="badge {% if item.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">
-                        {{ item.status }}
-                    </span>
-                </td>
-                <td>{{ item.response or '-' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-
-<div class="card">
-    <h3 style="margin-top: 0;">Análisis de Evidencia con IA</h3>
+    {% endfor %}
     
     {% if analysis %}
-        <div style="background: #f1f5f9; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
-            <p><strong>Veredicto:</strong> {{ analysis.compliance_assessment | replace('_', ' ') | title }}</p>
-            <p><strong>Confianza:</strong> {{ (analysis.confidence * 100) | round(1) }}%</p>
-            <p><strong>Revisión Humana:</strong> 
+    <h2 style="margin-top: 2rem;">Análisis de IA</h2>
+    
+    {% set bg_color = '#dcfce7' if analysis.compliance_assessment == 'compliant' else ('#fef3c7' if analysis.compliance_assessment == 'partial' else '#fee2e2') %}
+    <div class="card" style="--card-bg: {{ bg_color }}; background: var(--card-bg);">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+            <h3 style="margin: 0;">Veredicto: {{ analysis.compliance_assessment|replace('_', ' ')|title }}</h3>
+            <div>
+                <strong>Confianza:</strong> {{ (analysis.confidence * 100)|round(1) }}%
                 {% if analysis.requires_human_review %}
-                    <span class="badge badge-danger">Sí, Pendiente</span>
-                {% else %}
-                    <span class="badge badge-success">No requerida</span>
+                <span class="badge badge-danger" style="margin-left: 0.5rem;">Requiere Revisión Humana</span>
                 {% endif %}
-            </p>
-            {% if analysis.gaps != '[]' %}
-                <p><strong>Brechas detectadas:</strong> {{ analysis.gaps }}</p>
-            {% endif %}
-        </div>
-        <p style="color: var(--success); font-size: 0.9rem;">
-            ✅ Análisis completado. Tokens estimados consumidos: {{ analysis.tokens_est }}
-        </p>
-    {% else %}
-        <form method="POST" action="/audit/{{ audit.id }}/analyze" enctype="multipart/form-data" style="margin-bottom: 1rem;">
-            <div class="form-group">
-                <label>Subir Archivo de Evidencia (.txt)</label>
-                <input type="file" name="file" required>
             </div>
-            <button type="submit" class="btn">Ejecutar Análisis de IA</button>
-            <p style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;">
-                * El sistema calculará el hash SHA-256, extraerá texto y evaluará el cumplimiento.
-                Si no hay evidencia relevante, se activará el <strong>cortocircuito</strong> para ahorrar costos de IA.
-            </p>
-        </form>
+        </div>
+        
+        {% if analysis.gaps %}
+        <div style="margin-bottom: 1rem;">
+            <strong>Brechas Identificadas:</strong>
+            <ul style="margin-top: 0.5rem;">
+                {% for gap in analysis.gaps %}
+                <li>{{ gap }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        
+        {% if analysis.risks %}
+        <div>
+            <strong>Riesgos Identificados:</strong>
+            <ul style="margin-top: 0.5rem;">
+                {% for risk in analysis.risks %}
+                <li>{{ risk }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        
+        <p style="margin-top: 1rem; font-size: 0.875rem; color: #64748b;">
+            Tokens estimados: {{ analysis.tokens_est }} | Proveedor: {{ analysis.provider }}
+        </p>
+    </div>
     {% endif %}
 </div>
-
 {% endblock %}

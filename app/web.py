@@ -248,6 +248,63 @@ def audit_detail(
         {"audit": audit, "checklist": checklist, "analysis": analysis},
     )
 
+@router.post("/audit/{audit_id}/item/{item_id}/evidence")
+def upload_item_evidence(
+    request: Request,
+    audit_id: str,
+    item_id: str,
+    file: UploadFile = File(...),
+    membership: Membership = Depends(require_role("owner", "auditor")),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Sube evidencia para un ítem específico del checklist."""
+    # Obtener el checklist item
+    item = db.query(ChecklistItem).filter(
+        ChecklistItem.id == uuid.UUID(item_id),
+        ChecklistItem.tenant_id == membership.tenant_id,
+    ).first()
+    
+    if not item:
+        return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+    
+    # Guardar archivo
+    import hashlib
+    from pathlib import Path
+    
+    content = file.file.read()
+    file_hash = hashlib.sha256(content).hexdigest()
+    evidence_dir = Path("data/evidence")
+    evidence_dir.mkdir(exist_ok=True)
+    file_path = evidence_dir / f"{file_hash}{Path(file.filename).suffix}"
+    file_path.write_bytes(content)
+    
+    # Crear registro de evidencia
+    evidence = EvidenceFile(
+        tenant_id=membership.tenant_id,
+        audit_id=uuid.UUID(audit_id),
+        checklist_item_id=uuid.UUID(item_id),
+        original_filename=file.filename,
+        mime_type=file.content_type,
+        file_size=len(content),
+        sha256=file_hash,
+        storage_path=str(file_path),
+        classification="internal",
+        upload_status="completed",
+        extraction_status="pending",
+    )
+    db.add(evidence)
+    db.commit()
+    db.refresh(evidence)
+    
+    # Ejecutar análisis de IA
+    from app.worker.assess import assess_compliance
+    assess_compliance(evidence.id, uuid.UUID(audit_id), db, tenant_id=membership.tenant_id)
+    
+    # Actualizar estado del checklist item
+    item.status = "completed"
+    db.commit()
+    
+    return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
 
 @router.post("/audit/{audit_id}/analyze")
 def analyze(

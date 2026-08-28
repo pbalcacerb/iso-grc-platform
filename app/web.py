@@ -248,6 +248,7 @@ def audit_detail(
         {"audit": audit, "checklist": checklist, "analysis": analysis},
     )
 
+
 @router.post("/audit/{audit_id}/item/{item_id}/evidence")
 def upload_item_evidence(
     request: Request,
@@ -268,9 +269,6 @@ def upload_item_evidence(
         return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
     
     # Guardar archivo
-    import hashlib
-    from pathlib import Path
-    
     content = file.file.read()
     file_hash = hashlib.sha256(content).hexdigest()
     evidence_dir = Path("data/evidence")
@@ -297,7 +295,6 @@ def upload_item_evidence(
     db.refresh(evidence)
     
     # Ejecutar análisis de IA
-    from app.worker.assess import assess_compliance
     assess_compliance(evidence.id, uuid.UUID(audit_id), db, tenant_id=membership.tenant_id)
     
     # Actualizar estado del checklist item
@@ -305,6 +302,7 @@ def upload_item_evidence(
     db.commit()
     
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+
 
 @router.post("/audit/{audit_id}/analyze")
 def analyze(

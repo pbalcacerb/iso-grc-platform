@@ -28,9 +28,13 @@
                 <strong>Cláusula {{ item.clause_number }}</strong>
                 <p style="margin: 0.5rem 0;">{{ item.question }}</p>
             </div>
-            <span class="badge badge-{{ 'success' if item.status == 'completed' else 'warning' }}">
-                {{ item.status }}
-            </span>
+            {% if item.status == 'completed' %}
+    <span class="badge badge-success">completed</span>
+        {% elif item.status == 'pending_review' %}
+          <span class="badge badge-warning">En Revisión</span>
+        {% else %}
+            <span class="badge badge-muted">pending</span>
+        {% endif %}
         </div>
         
         {% if item.response %}

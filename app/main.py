@@ -9,11 +9,16 @@ from app.auth.logout import router as logout_router
 from app.auth.register import router as register_router
 from app.middleware import SessionMiddleware
 from app.web import router as web_router
+from app.health import router as health_router
+from app.logging_config import setup_logging
+
+setup_logging()
 
 app = FastAPI(title="ISO GRC Platform", version="0.1.0")
 
 app.add_middleware(SessionMiddleware)
 
+app.include_router(health_router)
 app.include_router(web_router)
 app.include_router(register_router, prefix="/auth")
 app.include_router(login_router, prefix="/auth")

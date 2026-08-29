@@ -59,63 +59,66 @@ def seed_demo_data() -> None:
                     "VALUES (gen_random_uuid(), :c, :q, 'Evidencia documental', 'Criterio demo', 0)"
                 ), {"c": clause_ids[num], "q": q})
 
-        # 3) Cuenta demo + tenant + cliente + auditoría (solo primera vez)
-        exists = conn.execute(text(
-            "SELECT id FROM users WHERE email = 'demo@grc.com'"
-        )).scalar()
-        if exists:
-            print("✅ Demo data seeded successfully (idempotent).")
-            return
-
-        user_id = conn.execute(text(
-            "INSERT INTO users (email, password_hash, full_name) "
-            "VALUES ('demo@grc.com', :h, 'Usuario Demo') RETURNING id"
-        ), {"h": ph.hash("SecurePass123!")}).scalar()
-
+        # 3) Cuenta demo + tenant + cliente + auditoría
         tenant_id = conn.execute(text(
             "INSERT INTO tenants (name, slug) "
-            "VALUES ('Tenant Demo', 'demo-tenant') RETURNING id"
+            "VALUES ('Tenant Demo', 'demo-tenant') "
+            "ON CONFLICT (slug) DO NOTHING RETURNING id"
         )).scalar()
 
-        conn.execute(text(
-            "INSERT INTO memberships (user_id, tenant_id, role) "
-            "VALUES (:u, :t, 'owner')"
-        ), {"u": user_id, "t": tenant_id})
+        if not tenant_id:
+            tenant_id = conn.execute(text(
+                "SELECT id FROM tenants WHERE slug = 'demo-tenant'"
+            )).scalar()
 
-        client_id = conn.execute(text(
-            "INSERT INTO clients (tenant_id, name, sector, country) "
-            "VALUES (:t, 'Cliente Piloto S.A.', 'Tecnología', 'DO') RETURNING id"
-        ), {"t": tenant_id}).scalar()
-
-        audit_id = conn.execute(text(
-            "INSERT INTO audits (tenant_id, client_id, standard_id, name) "
-            "VALUES (:t, :c, :s, 'Auditoría ISO 9001 Demo') RETURNING id"
-        ), {"t": tenant_id, "c": client_id, "s": std_id}).scalar()
-
-        rows = conn.execute(text(
-            "SELECT c.id, qp.id FROM clauses c "
-            "JOIN question_packs qp ON qp.clause_id = c.id "
-            "WHERE c.standard_id = :s"
-        ), {"s": std_id}).all()
-        for cid, qpid in rows:
+        # Registro unificado de usuarios demo con nuevos roles
+        demo_users = [
+            ("demo@grc.com", "Owner Demo", "owner"),
+            ("lead@grc.com", "Auditor Líder", "lead_auditor"),
+            ("reviewer@grc.com", "Revisor / Coordinación", "coordinator"),
+            ("observer@grc.com", "Experto / Observador", "observer"),
+            ("client_editor@grc.com", "Líder SGI Cliente", "client_responsible"),
+            ("client_viewer@grc.com", "Sponsor Cliente", "client_sponsor"),
+            ("process@grc.com", "Owner de Proceso Cliente", "client_process_owner"),
+        ]
+        for email, full, role in demo_users:
             conn.execute(text(
-                "INSERT INTO checklist_items (tenant_id, audit_id, clause_id, question_pack_id) "
-                "VALUES (:t, :a, :c, :q)"
-            ), {"t": tenant_id, "a": audit_id, "c": cid, "q": qpid})
-        conn.execute(text(
-            "INSERT INTO users (email, password_hash, full_name) "
-            "VALUES ('reviewer@grc.com', :h, 'Reviewer Demo') "
-            "ON CONFLICT (email) DO NOTHING"
-        ), {"h": ph.hash("SecurePass123!")})
-        
-        rev_id = conn.execute(text(
-            "SELECT id FROM users WHERE email = 'reviewer@grc.com'"
-        )).scalar()
-        conn.execute(text(
-            "INSERT INTO memberships (user_id, tenant_id, role) "
-            "SELECT :u, :t, 'reviewer' WHERE NOT EXISTS ("
-            "SELECT 1 FROM memberships WHERE user_id = :u AND tenant_id = :t)"
-        ), {"u": rev_id, "t": tenant_id})
+                "INSERT INTO users (email, password_hash, full_name) "
+                "VALUES (:e, :h, :f) ON CONFLICT (email) DO NOTHING"
+            ), {"e": email, "h": ph.hash("SecurePass123!"), "f": full})
+            uid = conn.execute(text(
+                "SELECT id FROM users WHERE email = :e"), {"e": email}).scalar()
+            conn.execute(text(
+                "INSERT INTO memberships (user_id, tenant_id, role) "
+                "SELECT :u, :t, :r WHERE NOT EXISTS ("
+                "SELECT 1 FROM memberships WHERE user_id = :u AND tenant_id = :t)"
+            ), {"u": uid, "t": tenant_id, "r": role})
+
+        # Estructura cliente y auditoría demo si no existe
+        client_count = conn.execute(text(
+            "SELECT count(*) FROM clients WHERE tenant_id = :t"
+        ), {"t": tenant_id}).scalar()
+        if client_count == 0:
+            client_id = conn.execute(text(
+                "INSERT INTO clients (tenant_id, name, sector, country) "
+                "VALUES (:t, 'Cliente Piloto S.A.', 'Tecnología', 'DO') RETURNING id"
+            ), {"t": tenant_id}).scalar()
+
+            audit_id = conn.execute(text(
+                "INSERT INTO audits (tenant_id, client_id, standard_id, name) "
+                "VALUES (:t, :c, :s, 'Auditoría ISO 9001 Demo') RETURNING id"
+            ), {"t": tenant_id, "c": client_id, "s": std_id}).scalar()
+
+            rows = conn.execute(text(
+                "SELECT c.id, qp.id FROM clauses c "
+                "JOIN question_packs qp ON qp.clause_id = c.id "
+                "WHERE c.standard_id = :s"
+            ), {"s": std_id}).all()
+            for cid, qpid in rows:
+                conn.execute(text(
+                    "INSERT INTO checklist_items (tenant_id, audit_id, clause_id, question_pack_id) "
+                    "VALUES (:t, :a, :c, :q)"
+                ), {"t": tenant_id, "a": audit_id, "c": cid, "q": qpid})
 
     print("✅ Demo data seeded successfully (idempotent).")
 

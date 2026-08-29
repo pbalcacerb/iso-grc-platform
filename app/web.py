@@ -4,6 +4,8 @@ import re
 import uuid
 from pathlib import Path
 
+from sqlalchemy import func
+
 from app.permissions import require_perm, role_can
 from app.security import parse_session, require_role
 from app.worker.assess import assess_compliance, assess_item, ingest_evidence_file
@@ -294,6 +296,73 @@ def audit_detail(
             "can_approve": can_approve,
             "can_reopen": can_reopen,
             "analyses_by_item": analyses_by_item,
+        },
+    )
+
+@router.get("/review-queue", response_class=HTMLResponse)
+def review_queue(
+    request: Request,
+    membership: Membership = Depends(require_perm("view_internal")),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Cola de ítems pendientes de revisión humana para roles internos."""
+    # Subconsulta: último análisis de IA por checklist_item_id (por fecha)
+    latest_by_date = (
+        db.query(
+            EvidenceFile.checklist_item_id.label("item_id"),
+            func.max(AIAnalysis.created_at).label("max_date"),
+        )
+        .join(EvidenceFile, EvidenceFile.id == AIAnalysis.evidence_file_id)
+        .group_by(EvidenceFile.checklist_item_id)
+        .subquery()
+    )
+
+    # Query principal: ChecklistItem + datos relacionados + último análisis
+    rows = (
+        db.query(ChecklistItem, Audit, Client, Clause, QuestionPack, AIAnalysis)
+        .join(Audit, Audit.id == ChecklistItem.audit_id)
+        .join(Client, Client.id == Audit.client_id)
+        .join(Clause, Clause.id == ChecklistItem.clause_id)
+        .join(QuestionPack, QuestionPack.id == ChecklistItem.question_pack_id)
+        .join(EvidenceFile, EvidenceFile.checklist_item_id == ChecklistItem.id)
+        .join(AIAnalysis, AIAnalysis.evidence_file_id == EvidenceFile.id)
+        .join(
+            latest_by_date,
+            (latest_by_date.c.item_id == ChecklistItem.id)
+            & (AIAnalysis.created_at == latest_by_date.c.max_date),
+        )
+        .filter(
+            ChecklistItem.tenant_id == membership.tenant_id,
+            ChecklistItem.status.in_(["pending_review", "completed"]),
+        )
+        .order_by(Audit.name, Clause.number)
+        .all()
+    )
+
+    items = []
+    for checklist_item, audit, client, clause, question_pack, analysis in rows:
+        items.append({
+            "item_id": str(checklist_item.id),
+            "audit_id": str(audit.id),
+            "audit_name": audit.name,
+            "client_name": client.name,
+            "clause_number": clause.number,
+            "clause_title": clause.title,
+            "question": question_pack.question,
+            "status": checklist_item.status,
+            "assessment": analysis.compliance_assessment if analysis else "unknown",
+            "confidence": analysis.confidence if analysis else 0.0,
+            "gaps": analysis.gaps if analysis else [],
+            "provider": analysis.provider if analysis else "none",
+        })
+
+    pending_count = sum(1 for i in items if i["status"] == "pending_review")
+
+    return templates.TemplateResponse(
+        request, "review_queue.html",
+        {
+            "items": items,
+            "pending_count": pending_count,
         },
     )
 

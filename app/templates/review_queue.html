@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container" style="max-width: 1200px; margin: 2rem auto;">
+    <a href="/dashboard" class="btn" style="background: #64748b; margin-bottom: 1rem;">← Volver al Dashboard</a>
+
+    <h1>Cola de Revisión</h1>
+    <p style="color: #64748b;">
+        Ítems de auditoría que requieren decisión humana.
+        <strong>{{ pending_count }} en revisión</strong> ·
+        {{ items|length }} totales mostrados.
+    </p>
+
+    {% if not items %}
+    <div class="card" style="text-align: center; padding: 2rem; color: #64748b;">
+        No hay ítems en revisión. La plataforma está al día. ✅
+    </div>
+    {% else %}
+    <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <thead style="background: #f1f5f9;">
+            <tr>
+                <th style="padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; color: #475569;">Auditoría</th>
+                <th style="padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; color: #475569;">Cliente</th>
+                <th style="padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; color: #475569;">Cláusula</th>
+                <th style="padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; color: #475569;">Pregunta</th>
+                <th style="padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; color: #475569;">Estado</th>
+                <th style="padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; color: #475569;">Veredicto IA</th>
+                <th style="padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; color: #475569;">Confianza</th>
+                <th style="padding: 0.75rem 1rem; text-align: right; font-size: 0.85rem; color: #475569;">Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for it in items %}
+            <tr style="border-top: 1px solid #e2e8f0;">
+                <td style="padding: 0.75rem 1rem; font-size: 0.9rem;">
+                    <a href="/audit/{{ it.audit_id }}" style="color: var(--primary);">{{ it.audit_name }}</a>
+                </td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.9rem;">{{ it.client_name }}</td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.9rem; white-space: nowrap;">
+                    <strong>{{ it.clause_number }}</strong>
+                    <span style="color: #64748b; font-size: 0.8rem;">{{ it.clause_title }}</span>
+                </td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.9rem; max-width: 300px;">
+                    {{ it.question[:80] }}{% if it.question|length > 80 %}…{% endif %}
+                </td>
+                <td style="padding: 0.75rem 1rem;">
+                    {% if it.status == 'pending_review' %}
+                        <span class="badge badge-warning">En Revisión</span>
+                    {% else %}
+                        <span class="badge badge-success">Completado</span>
+                    {% endif %}
+                </td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem;">
+                    {{ it.assessment|replace('_', ' ')|title }}
+                </td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem;">
+                    {{ (it.confidence * 100)|round(1) }}%
+                </td>
+                <td style="padding: 0.75rem 1rem; text-align: right; white-space: nowrap;">
+                    {% if it.status == 'pending_review' %}
+                        <form method="POST" action="/audit/{{ it.audit_id }}/item/{{ it.item_id }}/approve" style="display:inline;">
+                            <button type="submit" class="btn" style="background: #16a34a; padding: 0.35rem 0.75rem; font-size: 0.8rem;">Aprobar</button>
+                        </form>
+                    {% endif %}
+                    <form method="POST" action="/audit/{{ it.audit_id }}/item/{{ it.item_id }}/reopen" style="display:inline;">
+                        <button type="submit" class="btn" style="background: #64748b; padding: 0.35rem 0.75rem; font-size: 0.8rem;">Reabrir</button>
+                    </form>
+                </td>
+            </tr>
+            {% if it.gaps %}
+            <tr style="background: #fef9c3;">
+                <td colspan="8" style="padding: 0.5rem 1rem; font-size: 0.8rem; color: #854d0e;">
+                    <strong>Brechas:</strong>
+                    {% for g in it.gaps[:2] %}{{ g }}{% if not loop.last %} · {% endif %}{% endfor %}
+                </td>
+            </tr>
+            {% endif %}
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endblock %}

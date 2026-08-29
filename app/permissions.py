@@ -1,26 +1,51 @@
-"""Matriz de permisos por rol (WP2.5)."""
+"""Matriz de permisos por rol (WP2.5-3.5, modelo de 8 roles)."""
 from fastapi import Depends, HTTPException
 
 from app.models import Membership
 from app.security import get_membership
 
 PERMISSIONS: dict[str, set[str]] = {
+    # ===== EQUIPO AUDITOR (propietario de la plataforma) =====
     "owner": {
-        "manage_users", "create_client", "create_audit", "upload_evidence",
-        "approve_item", "reopen_item", "view_internal", "manage_findings",
-        "approve_report", "view_portal",
+        "manage_users", "manage_platform",
+        "create_client", "create_audit", "manage_schedule",
+        "upload_evidence", "evaluate_evidence",
+        "draft_findings", "classify_findings",
+        "approve_item", "reopen_item",
+        "view_internal", "manage_findings", "approve_report",
+        "view_portal",
+    },
+    "lead_auditor": {
+        "create_client", "create_audit", "manage_schedule",
+        "upload_evidence", "evaluate_evidence",
+        "draft_findings", "classify_findings",
+        "approve_item", "reopen_item",
+        "view_internal", "manage_findings", "approve_report",
     },
     "auditor": {
-        "create_client", "create_audit", "upload_evidence", "reopen_item",
+        "create_audit", "manage_schedule",
+        "upload_evidence", "evaluate_evidence",
+        "draft_findings", "reopen_item",
         "view_internal", "manage_findings",
     },
-    "reviewer": {
-        "approve_item", "reopen_item", "view_internal", "manage_findings",
-        "approve_report",
+    "coordinator": {  # Revisor: trazabilidad y agenda, edición limitada (NO aprueba)
+        "manage_schedule", "reopen_item", "view_internal",
     },
-    "client_editor": {"upload_evidence", "view_portal", "propose_capa"},
-    "client_viewer": {"view_portal"},
-    "viewer": {"view_portal"},
+       "observer": {     # Experto técnico + auditor en formación (solo lectura + comentar)
+        "comment",
+    },
+
+    # ===== ORGANIZACIÓN AUDITADA (cliente) =====
+    "client_responsible": {  # Líder ISO / Responsable
+        "upload_evidence", "view_portal", "view_findings",
+        "propose_capa", "confirm_interviews",
+    },
+    "client_process_owner": {  # Dueños de proceso
+        "upload_evidence", "view_portal",
+    },
+    "client_sponsor": {  # Alta Dirección
+        "view_portal", "view_findings", "approve_capa_commitment",
+    },
 }
 
 

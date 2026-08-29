@@ -15,11 +15,16 @@
         <div class="form-group"><label>Contraseña Temporal</label>
             <input type="password" name="password" required></div>
         <div class="form-group"><label>Rol</label>
-            <select name="role">
-                <option value="auditor">Auditor</option>
-                <option value="reviewer">Reviewer</option>
-                <option value="viewer">Viewer</option>
-            </select></div>
+            <select id="role" name="role" required
+        style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+        <option value="lead_auditor">Auditor Líder</option>
+        <option value="auditor">Auditor</option>
+        <option value="coordinator">Revisor / Coordinación</option>
+        <option value="observer">Experto / Observador</option>
+        <option value="client_responsible">Cliente: Responsable SGI</option>
+        <option value="client_process_owner">Cliente: Owner de Proceso</option>
+        <option value="client_sponsor">Cliente: Sponsor / Alta Dirección</option>
+    </select></div>
         <button type="submit" class="btn">Invitar</button>
     </form>
 </div>

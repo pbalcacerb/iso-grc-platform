@@ -6,6 +6,9 @@
     {% if role == 'owner' %}
     <a href="/users" class="btn">Gestionar Usuarios</a>
     {% endif %}
+    {% if role in ['owner', 'lead_auditor', 'auditor', 'coordinator'] %}
+    <a href="/review-queue" class="btn" style="background: #ca8a04;">🔍 Cola de Revisión</a>
+    {% endif %}
 </div>
 
 <div style="margin-bottom: 1rem;">

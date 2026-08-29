@@ -2,25 +2,25 @@
 {% block content %}
 <div class="container" style="max-width: 1000px; margin: 2rem auto;">
     <a href="/dashboard" class="btn" style="background: #64748b; margin-bottom: 1rem;">← Volver al Dashboard</a>
-    
+
     <h1>{{ audit.name }}</h1>
-    
+
     {% set total_items = checklist|length %}
     {% set completed_items = checklist|selectattr('status', 'equalto', 'completed')|list|length %}
     {% set progress = (completed_items / total_items * 100) if total_items > 0 else 0 %}
-    
+
     <div style="margin: 1.5rem 0;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
             <span><strong>Progreso de Auditoría</strong></span>
             <span>{{ completed_items }}/{{ total_items }} ítems completados ({{ progress|round }}%)</span>
         </div>
         <div style="background: #e2e8f0; border-radius: 4px; height: 24px; overflow: hidden;">
-            <div style="--progress-width: {{ progress }}%; background: var(--primary); height: 100%; width: var(--progress-width); transition: width 0.3s;"></div>
+            <div style="background: var(--primary); height: 100%; width: {{ progress }}%; transition: width 0.3s;"></div>
         </div>
     </div>
-    
+
     <h2>Checklist de Cumplimiento</h2>
-    
+
     {% for item in checklist %}
     <div class="card" style="margin-bottom: 1rem;">
         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
@@ -29,35 +29,86 @@
                 <p style="margin: 0.5rem 0;">{{ item.question }}</p>
             </div>
             {% if item.status == 'completed' %}
-    <span class="badge badge-success">completed</span>
-        {% elif item.status == 'pending_review' %}
-          <span class="badge badge-warning">En Revisión</span>
-        {% else %}
-            <span class="badge badge-muted">pending</span>
-        {% endif %}
+                <span class="badge badge-success">completed</span>
+            {% elif item.status == 'pending_review' %}
+                <span class="badge badge-warning">En Revisión</span>
+            {% else %}
+                <span class="badge badge-muted">pending</span>
+            {% endif %}
         </div>
-        
+
         {% if item.response %}
         <p style="margin-top: 0.5rem;"><strong>Respuesta:</strong> {{ item.response }}</p>
         {% endif %}
-        
-        <form method="POST" action="/audit/{{ audit.id }}/item/{{ item.id if item.id else '' }}/evidence" 
-              enctype="multipart/form-data" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
-            <div class="form-group">
-                <label>Subir Evidencia (PDF/TXT)</label>
-                <input type="file" name="file" accept=".pdf,.txt" required 
-                       style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+
+        {% set ia = analyses_by_item.get(item.id) if analyses_by_item else None %}
+        {% if ia %}
+        <div style="margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background: #f8fafc; font-size: 0.85rem;">
+            <strong>Último veredicto IA del ítem:</strong>
+            {{ ia.compliance_assessment|replace('_', ' ')|title }}
+            | Confianza: {{ (ia.confidence * 100)|round(1) }}%
+            {% if ia.gaps %}
+            <ul style="margin-top: 0.4rem;">
+                {% for g in ia.gaps[:3] %}<li>{{ g }}</li>{% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if item.status == 'completed' %}
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; font-size: 0.9rem; color: #16a34a;">
+                ✅ Evidencia aprobada — ítem cerrado.
+                {% if can_reopen %}
+                <form method="POST" action="/audit/{{ audit.id }}/item/{{ item.id }}/reopen" style="display: inline; margin-left: 1rem;">
+                    <button type="submit" class="btn" style="background: #64748b;">Reabrir</button>
+                </form>
+                {% endif %}
             </div>
-            <button type="submit" class="btn">Subir y Analizar</button>
-        </form>
+
+        {% elif item.status == 'pending_review' %}
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; font-size: 0.9rem; color: #ca8a04;">
+                ⏳ En revisión humana.
+                {% if can_approve %}
+                <form method="POST" action="/audit/{{ audit.id }}/item/{{ item.id }}/approve" style="display: inline; margin-left: 1rem;">
+                    <button type="submit" class="btn" style="background: #16a34a;">Aprobar</button>
+                </form>
+                {% endif %}
+                {% if can_reopen %}
+                <form method="POST" action="/audit/{{ audit.id }}/item/{{ item.id }}/reopen" style="display: inline; margin-left: 0.5rem;">
+                    <button type="submit" class="btn" style="background: #64748b;">Reabrir</button>
+                </form>
+                {% endif %}
+            </div>
+            {% if can_upload %}
+            <form method="POST" action="/audit/{{ audit.id }}/item/{{ item.id }}/evidence" enctype="multipart/form-data" style="margin-top: 0.75rem;">
+                <div class="form-group">
+                    <label>Reforzar con evidencia adicional (PDF/TXT, máx. 5 archivos)</label>
+                    <input type="file" name="file" accept=".pdf,.txt" required multiple style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+                </div>
+                <button type="submit" class="btn">Subir y Analizar</button>
+            </form>
+            {% endif %}
+
+        {% else %}
+            {% if can_upload %}
+            <form method="POST" action="/audit/{{ audit.id }}/item/{{ item.id }}/evidence" enctype="multipart/form-data" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+                <div class="form-group">
+                    <label>Subir Evidencia (PDF/TXT, máx. 5 archivos)</label>
+                    <input type="file" name="file" accept=".pdf,.txt" required multiple style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+                </div>
+                <button type="submit" class="btn">Subir y Analizar</button>
+            </form>
+            {% else %}
+            <p style="margin-top: 1rem; font-size: 0.9rem; color: #64748b;">Sin permiso de carga para este ítem.</p>
+            {% endif %}
+        {% endif %}
     </div>
     {% endfor %}
-    
+
     {% if analysis %}
-    <h2 style="margin-top: 2rem;">Análisis de IA</h2>
-    
+    <h2 style="margin-top: 2rem;">Análisis de IA (último generado)</h2>
     {% set bg_color = '#dcfce7' if analysis.compliance_assessment == 'compliant' else ('#fef3c7' if analysis.compliance_assessment == 'partial' else '#fee2e2') %}
-    <div class="card" style="--card-bg: {{ bg_color }}; background: var(--card-bg);">
+    <div class="card" style="background: {{ bg_color }};">
         <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
             <h3 style="margin: 0;">Veredicto: {{ analysis.compliance_assessment|replace('_', ' ')|title }}</h3>
             <div>
@@ -67,7 +118,7 @@
                 {% endif %}
             </div>
         </div>
-        
+
         {% if analysis.gaps %}
         <div style="margin-bottom: 1rem;">
             <strong>Brechas Identificadas:</strong>
@@ -78,7 +129,7 @@
             </ul>
         </div>
         {% endif %}
-        
+
         {% if analysis.risks %}
         <div>
             <strong>Riesgos Identificados:</strong>
@@ -89,7 +140,7 @@
             </ul>
         </div>
         {% endif %}
-        
+
         <p style="margin-top: 1rem; font-size: 0.875rem; color: #64748b;">
             Tokens estimados: {{ analysis.tokens_est }} | Proveedor: {{ analysis.provider }}
         </p>

@@ -4,6 +4,11 @@ import re
 import uuid
 from pathlib import Path
 
+from app.permissions import require_perm, role_can
+from app.security import parse_session, require_role
+from app.worker.assess import assess_compliance, assess_item, ingest_evidence_file
+from typing import List
+
 import argon2
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,8 +20,8 @@ from app.models import (
     AIAnalysis, Audit, ChecklistItem, Clause, Client,
     EvidenceFile, Membership, QuestionPack, Standard, Tenant, User,
 )
-from app.security import parse_session, require_role
-from app.worker.assess import assess_compliance
+
+
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -217,23 +222,39 @@ def create_audit_web(
 
 @router.get("/audit/{audit_id}", response_class=HTMLResponse)
 def audit_detail(
-    request: Request, audit_id: str, db: Session = Depends(get_db),
+    request: Request, audit_id: str, db: Session = Depends(get_db)
 ) -> HTMLResponse:
-    tenant_id, _ = _parse_session(request)
+    tenant_id, user_id = parse_session(request)
     if not tenant_id:
         return RedirectResponse(url="/login", status_code=303)
 
+    try:
+        audit_uuid = uuid.UUID(audit_id)
+    except ValueError:
+        return RedirectResponse(url="/dashboard", status_code=303)
+
     audit = db.query(Audit).filter(
-        Audit.id == uuid.UUID(audit_id), Audit.tenant_id == tenant_id,
+        Audit.id == audit_uuid, Audit.tenant_id == tenant_id,
     ).first()
     if not audit:
         return RedirectResponse(url="/dashboard", status_code=303)
+
+    membership = db.query(Membership).filter(
+        Membership.tenant_id == tenant_id,
+        Membership.user_id == user_id,
+    ).first()
+    role = membership.role if membership else None
+
+    can_upload = role_can(role, "upload_evidence")
+    can_approve = role_can(role, "approve_item")
+    can_reopen = role_can(role, "reopen_item")
 
     rows = (
         db.query(ChecklistItem, Clause.number, QuestionPack.question)
         .join(Clause, ChecklistItem.clause_id == Clause.id)
         .join(QuestionPack, ChecklistItem.question_pack_id == QuestionPack.id)
         .filter(ChecklistItem.audit_id == audit.id)
+        .order_by(Clause.number)
         .all()
     )
     checklist = [
@@ -241,66 +262,122 @@ def audit_detail(
          "status": r[0].status, "response": r[0].response}
         for r in rows
     ]
-    analysis = db.query(AIAnalysis).filter(AIAnalysis.audit_id == audit.id).order_by(AIAnalysis.created_at.desc()).first()
+
+    analysis = (
+        db.query(AIAnalysis)
+        .filter(AIAnalysis.audit_id == audit.id)
+        .order_by(AIAnalysis.created_at.desc())
+        .first()
+    )
+
+    # NUEVO (Paso 4): último veredicto de IA por ítem de checklist
+    rows_a = (
+        db.query(AIAnalysis, EvidenceFile.checklist_item_id)
+        .join(EvidenceFile, EvidenceFile.id == AIAnalysis.evidence_file_id)
+        .filter(AIAnalysis.audit_id == audit.id)
+        .order_by(AIAnalysis.created_at.desc())
+        .all()
+    )
+    analyses_by_item = {}
+    for a, item_uuid in rows_a:
+        key = str(item_uuid)
+        if key not in analyses_by_item:
+            analyses_by_item[key] = a
 
     return templates.TemplateResponse(
         request, "audit_detail.html",
-        {"audit": audit, "checklist": checklist, "analysis": analysis},
+        {
+            "audit": audit,
+            "checklist": checklist,
+            "analysis": analysis,
+            "can_upload": can_upload,
+            "can_approve": can_approve,
+            "can_reopen": can_reopen,
+            "analyses_by_item": analyses_by_item,
+        },
     )
 
 
 @router.post("/audit/{audit_id}/item/{item_id}/evidence")
 def upload_item_evidence(
-    request: Request,
     audit_id: str,
     item_id: str,
-    file: UploadFile = File(...),
-    membership: Membership = Depends(require_role("owner", "auditor")),
+    file: List[UploadFile] = File(...),
+    membership: Membership = Depends(require_perm("upload_evidence")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    """Sube evidencia para un ítem específico del checklist."""
-    # Obtener el checklist item
+    """Sube 1..5 evidencias al ítem y ejecuta un análisis consolidado."""
     item = db.query(ChecklistItem).filter(
         ChecklistItem.id == uuid.UUID(item_id),
         ChecklistItem.tenant_id == membership.tenant_id,
     ).first()
-    
     if not item:
         return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
-    
-    # Guardar archivo
-    content = file.file.read()
-    file_hash = hashlib.sha256(content).hexdigest()
-    evidence_dir = Path("data/evidence")
-    evidence_dir.mkdir(exist_ok=True)
-    file_path = evidence_dir / f"{file_hash}{Path(file.filename).suffix}"
-    file_path.write_bytes(content)
-    
-    # Crear registro de evidencia
-    evidence = EvidenceFile(
-        tenant_id=membership.tenant_id,
-        audit_id=uuid.UUID(audit_id),
+
+    last_evidence = None
+    for upload in file[:5]:
+        suffix = Path(upload.filename or "").suffix.lower()
+        if suffix not in (".pdf", ".txt"):
+            continue
+        content = upload.file.read()
+        if not content or len(content) > 10 * 1024 * 1024:
+            continue
+
+        sha = hashlib.sha256(content).hexdigest()
+        ev_dir = Path("data/evidence")
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        file_path = ev_dir / f"{sha}{suffix}"
+        file_path.write_bytes(content)
+
+        evidence = EvidenceFile(
+            tenant_id=membership.tenant_id,
+            audit_id=uuid.UUID(audit_id),
+            checklist_item_id=uuid.UUID(item_id),
+            original_filename=upload.filename or "unknown",
+            mime_type=upload.content_type or "application/octet-stream",
+            file_size=len(content),
+            sha256=sha,
+            storage_path=str(file_path),
+            uploaded_by=membership.user_id,
+        )
+        db.add(evidence)
+        db.commit()
+        db.refresh(evidence)
+
+        ingest_evidence_file(evidence, db, membership.tenant_id)
+        last_evidence = evidence
+
+    if last_evidence is None:
+        return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+
+    clause = db.query(Clause).filter(Clause.id == item.clause_id).first()
+    pack = db.query(QuestionPack).filter(QuestionPack.id == item.question_pack_id).first()
+    requirement_text = None
+    if clause and pack:
+        requirement_text = f"Cláusula {clause.number} ({clause.title}): {pack.question}"
+
+    result = assess_item(
         checklist_item_id=uuid.UUID(item_id),
-        original_filename=file.filename,
-        mime_type=file.content_type,
-        file_size=len(content),
-        sha256=file_hash,
-        storage_path=str(file_path),
-        classification="internal",
-        upload_status="completed",
-        extraction_status="pending",
+        audit_id=uuid.UUID(audit_id),
+        evidence_file_id=last_evidence.id,
+        db=db,
+        tenant_id=membership.tenant_id,
+        requirement_text=requirement_text,
     )
-    db.add(evidence)
+
+    if result.get("status") == "success":
+        if not result.get("relevant", True):
+            item.status = "pending"
+        elif result.get("requires_human_review"):
+            item.status = "pending_review"
+        else:
+            item.status = "completed"
+    elif result.get("status") == "simulated":
+        item.status = "pending_review"
+    else:
+        item.status = "pending"
     db.commit()
-    db.refresh(evidence)
-    
-    # Ejecutar análisis de IA
-    assess_compliance(evidence.id, uuid.UUID(audit_id), db, tenant_id=membership.tenant_id)
-    
-    # Actualizar estado del checklist item
-    item.status = "completed"
-    db.commit()
-    
+
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
 
 
@@ -309,7 +386,7 @@ def analyze(
     request: Request,
     audit_id: str,
     file: UploadFile = File(...),
-    membership: Membership = Depends(require_role("owner", "auditor")),
+    membership: Membership = Depends(require_perm("upload_evidence")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     tenant_id = membership.tenant_id
@@ -371,3 +448,39 @@ def invite_user(
     db.add(Membership(user_id=user.id, tenant_id=membership.tenant_id, role=role))
     db.commit()
     return RedirectResponse(url="/users", status_code=303)
+
+
+@router.post("/audit/{audit_id}/item/{item_id}/reopen")
+def reopen_item(
+    audit_id: str,
+    item_id: str,
+    membership: Membership = Depends(require_perm("reopen_item")),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    item = db.query(ChecklistItem).filter(
+        ChecklistItem.id == uuid.UUID(item_id),
+        ChecklistItem.tenant_id == membership.tenant_id,
+    ).first()
+    if not item:
+        return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+    item.status = "pending"
+    db.commit()
+    return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+
+
+@router.post("/audit/{audit_id}/item/{item_id}/approve")
+def approve_item(
+    audit_id: str,
+    item_id: str,
+    membership: Membership = Depends(require_perm("approve_item")),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    item = db.query(ChecklistItem).filter(
+        ChecklistItem.id == uuid.UUID(item_id),
+        ChecklistItem.tenant_id == membership.tenant_id,
+    ).first()
+    if not item:
+        return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+    item.status = "completed"
+    db.commit()
+    return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)

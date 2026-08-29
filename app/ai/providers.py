@@ -117,4 +117,8 @@ def get_provider():
     """Devuelve el proveedor activo según AI_PROVIDER."""
     if settings.AI_PROVIDER == "azure_openai":
         return AzureOpenAIProvider()
+    if settings.AI_PROVIDER == "off":
+        provider = SiliconFlowProvider()
+        provider.api_key = ""
+        return provider
     return SiliconFlowProvider()

@@ -19,17 +19,23 @@ def parse_session(request: Request) -> tuple[uuid.UUID | None, uuid.UUID | None]
 
 
 def get_membership(
-    request: Request, db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
 ) -> Membership:
+    """Obtiene la membresía del usuario actual desde la cookie de sesión."""
     tenant_id, user_id = parse_session(request)
+    
     if not tenant_id or not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    
     membership = db.query(Membership).filter(
-        Membership.user_id == user_id,
         Membership.tenant_id == tenant_id,
+        Membership.user_id == user_id,
     ).first()
+    
     if not membership:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=403, detail="No membership found")
+    
     return membership
 
 

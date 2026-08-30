@@ -3,18 +3,13 @@ import hashlib
 import re
 import uuid
 from pathlib import Path
-
-from sqlalchemy import func
-
-from app.permissions import require_perm, role_can
-from app.security import parse_session, require_role
-from app.worker.assess import assess_compliance, assess_item, ingest_evidence_file
 from typing import List
 
 import argon2
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -22,8 +17,9 @@ from app.models import (
     AIAnalysis, Audit, ChecklistItem, Clause, Client,
     EvidenceFile, Membership, QuestionPack, Standard, Tenant, User,
 )
-
-
+from app.permissions import require_perm, role_can
+from app.security import parse_session, require_role
+from app.worker.assess import assess_compliance, assess_item, ingest_evidence_file
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -114,9 +110,21 @@ def web_logout() -> RedirectResponse:
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    tenant_id, _ = _parse_session(request)
+    tenant_id, user_id = _parse_session(request)
     if not tenant_id:
         return RedirectResponse(url="/login", status_code=303)
+
+    membership = None
+    role = None
+    if user_id:
+        membership = db.query(Membership).filter(
+            Membership.tenant_id == tenant_id,
+            Membership.user_id == user_id,
+        ).first()
+        role = membership.role if membership else None
+
+    if role_can(role, "view_portal") and not role_can(role, "view_internal"):
+        return RedirectResponse(url="/portal", status_code=303)
 
     audits = db.query(Audit).filter(Audit.tenant_id == tenant_id).all()
     audit_data = []
@@ -127,12 +135,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "client_name": client.name if client else "Desconocido",
         })
 
-    role = None
-    if tenant_id:
-        m = db.query(Membership).filter(
-            Membership.tenant_id == tenant_id,
-        ).first()
-        role = m.role if m else None
     return templates.TemplateResponse(
         request, "dashboard.html", {"audits": audit_data, "role": role}
     )
@@ -201,11 +203,11 @@ def create_audit_web(
     )
     db.add(audit)
     db.flush()
-    
+
     question_packs = db.query(QuestionPack).join(Clause).filter(
         Clause.standard_id == uuid.UUID(standard_id)
     ).all()
-    
+
     for qp in question_packs:
         checklist_item = ChecklistItem(
             tenant_id=membership.tenant_id,
@@ -217,7 +219,7 @@ def create_audit_web(
             notes="",
         )
         db.add(checklist_item)
-    
+
     db.commit()
     return RedirectResponse(url="/dashboard", status_code=303)
 
@@ -226,7 +228,7 @@ def create_audit_web(
 def audit_detail(
     request: Request, audit_id: str, db: Session = Depends(get_db)
 ) -> HTMLResponse:
-    tenant_id, user_id = parse_session(request)
+    tenant_id, user_id = _parse_session(request)
     if not tenant_id:
         return RedirectResponse(url="/login", status_code=303)
 
@@ -246,6 +248,10 @@ def audit_detail(
         Membership.user_id == user_id,
     ).first()
     role = membership.role if membership else None
+
+    if role_can(role, "view_portal") and not role_can(role, "view_internal"):
+        if membership and membership.client_id and audit.client_id != membership.client_id:
+            return RedirectResponse(url="/portal", status_code=303)
 
     can_upload = role_can(role, "upload_evidence")
     can_approve = role_can(role, "approve_item")
@@ -272,7 +278,6 @@ def audit_detail(
         .first()
     )
 
-    # NUEVO (Paso 4): último veredicto de IA por ítem de checklist
     rows_a = (
         db.query(AIAnalysis, EvidenceFile.checklist_item_id)
         .join(EvidenceFile, EvidenceFile.id == AIAnalysis.evidence_file_id)
@@ -299,6 +304,7 @@ def audit_detail(
         },
     )
 
+
 @router.get("/review-queue", response_class=HTMLResponse)
 def review_queue(
     request: Request,
@@ -306,7 +312,6 @@ def review_queue(
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     """Cola de ítems pendientes de revisión humana para roles internos."""
-    # Subconsulta: último análisis de IA por checklist_item_id (por fecha)
     latest_by_date = (
         db.query(
             EvidenceFile.checklist_item_id.label("item_id"),
@@ -317,7 +322,6 @@ def review_queue(
         .subquery()
     )
 
-    # Query principal: ChecklistItem + datos relacionados + último análisis
     rows = (
         db.query(ChecklistItem, Audit, Client, Clause, QuestionPack, AIAnalysis)
         .join(Audit, Audit.id == ChecklistItem.audit_id)
@@ -482,6 +486,83 @@ def analyze(
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
 
 
+# ===== Constante de la Regla de Oro (portal) =====
+_PORTAL_VISIBLE_STATUSES = ("completed", "pending")
+
+
+@router.get("/portal", response_class=HTMLResponse)
+def portal(
+    request: Request,
+    membership: Membership = Depends(require_perm("view_portal")),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Portal del cliente: solo auditorías de SU client_id."""
+    role = membership.role
+    show_findings = role_can(role, "propose_capa")
+
+    query = db.query(Audit).filter(Audit.tenant_id == membership.tenant_id)
+    if membership.client_id:
+        query = query.filter(Audit.client_id == membership.client_id)
+    audits = query.all()
+
+    portal_audits = []
+    for audit in audits:
+        # REGLA DE ORO: excluir `pending_review` del portal
+        items = (
+            db.query(ChecklistItem)
+            .filter(
+                ChecklistItem.audit_id == audit.id,
+                ChecklistItem.status.in_(_PORTAL_VISIBLE_STATUSES),
+            )
+            .order_by(ChecklistItem.id)
+            .all()
+        )
+        total = len(items)
+        completed = sum(1 for i in items if i.status == "completed")
+        progress = (completed / total * 100) if total else 0
+
+        item_views = []
+        for it in items:
+            analysis = (
+                db.query(AIAnalysis)
+                .join(EvidenceFile, EvidenceFile.id == AIAnalysis.evidence_file_id)
+                .filter(EvidenceFile.checklist_item_id == it.id)
+                .order_by(AIAnalysis.created_at.desc())
+                .first()
+            )
+            include_details = show_findings and it.status == "completed"
+            item_views.append({
+                "id": str(it.id),
+                "clause_number": _clause_number(db, it),
+                "status": it.status,
+                "assessment": analysis.compliance_assessment if analysis else None,
+                "confidence": analysis.confidence if analysis else 0.0,
+                "gaps": (analysis.gaps if analysis and include_details else []) or [],
+                "risks": (analysis.risks if analysis and include_details else []) or [],
+            })
+
+        portal_audits.append({
+            "id": str(audit.id),
+            "name": audit.name,
+            "status": audit.status,
+            "progress": progress,
+            "completed": completed,
+            "total": total,
+            "checklist_items": item_views,
+        })
+
+    return templates.TemplateResponse(
+        request, "portal.html",
+        {"audits": portal_audits, "role": role, "show_findings": show_findings},
+    )
+
+
+def _clause_number(db: Session, item) -> str:
+    """Helper: obtener número de cláusula de un ítem."""
+    clause = db.query(Clause).filter(Clause.id == item.clause_id).first()
+    return clause.number if clause else ""
+
+
 @router.get("/users", response_class=HTMLResponse)
 def manage_users(
     request: Request,
@@ -507,7 +588,11 @@ def invite_user(
     membership: Membership = Depends(require_role("owner")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    if role not in ("auditor", "reviewer", "viewer"):
+    valid_roles = (
+        "lead_auditor", "auditor", "coordinator", "observer",
+        "client_responsible", "client_process_owner", "client_sponsor",
+    )
+    if role not in valid_roles:
         return RedirectResponse(url="/users", status_code=303)
     if db.query(User).filter(User.email == email).first():
         return RedirectResponse(url="/users", status_code=303)

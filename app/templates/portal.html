@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container" style="max-width: 1000px; margin: 2rem auto;">
+    <div class="header">
+        <h1>Portal del Cliente</h1>
+        <a href="/web/logout" class="btn" style="background: #64748b;">Cerrar Sesión</a>
+    </div>
+
+    <p style="color:#64748b;">
+        {% if show_findings %}
+        Vista operativa: puedes revisar hallazgos cerrados y cargar evidencias.
+        {% else %}
+        Vista ejecutiva: progreso y resultados finales de sus auditorías.
+        {% endif %}
+    </p>
+
+    {% if not audits %}
+    <div class="card" style="text-align:center; padding:2rem; color:#64748b;">
+        Aún no hay auditorías asociadas a su organización.
+    </div>
+    {% endif %}
+
+    {% for audit in audits %}
+    <div class="card" style="margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">{{ audit.name }}</h3>
+            <span class="badge badge-warning">{{ audit.status }}</span>
+        </div>
+
+        <div style="margin:1rem 0;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:.4rem;">
+                <span>Progreso visible</span>
+                <span>{{ audit.completed }}/{{ audit.total }} ({{ audit.progress|round }}%)</span>
+            </div>
+            <div style="background:#e2e8f0; border-radius:4px; height:14px; overflow:hidden;">
+                <div style="background:var(--primary); height:100%; width:{{ audit.progress }}%;"></div>
+            </div>
+        </div>
+
+        {% if audit.checklist_items %}
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="text-align:left; font-size:.8rem; color:#64748b;">
+                    <th style="padding:.4rem;">Cláusula</th>
+                    <th style="padding:.4rem;">Estado</th>
+                    <th style="padding:.4rem;">Veredicto</th>
+                    <th style="padding:.4rem;">Confianza</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for it in audit.checklist_items %}
+                <tr style="border-top:1px solid #e2e8f0; font-size:.85rem;">
+                    <td style="padding:.4rem;">{{ it.clause_number }}</td>
+                    <td style="padding:.4rem;">
+                        {% if it.status == 'completed' %}<span class="badge badge-success">completed</span>
+                        {% else %}<span class="badge badge-muted">pending</span>{% endif %}
+                    </td>
+                    <td style="padding:.4rem;">{{ (it.assessment or '—')|replace('_',' ')|title }}</td>
+                    <td style="padding:.4rem;">{{ (it.confidence*100)|round(1) }}%</td>
+                </tr>
+                {% if show_findings and it.status == 'completed' and it.gaps %}
+                <tr style="background:#fef9c3;">
+                    <td colspan="4" style="padding:.5rem; font-size:.78rem; color:#854d0e;">
+                        <strong>Brechas:</strong>
+                        {% for g in it.gaps[:2] %}{{ g }}{% if not loop.last %} · {% endif %}{% endfor %}
+                    </td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#64748b; font-size:.9rem; margin-top:.5rem;">
+            Sin ítems visibles aún. Los ítems aparecerán cuando el equipo auditor los cierre o queden pendientes de evidencia.
+        </p>
+        {% endif %}
+
+        {% if role == 'client_responsible' %}
+        <a href="/audit/{{ audit.id }}" class="btn" style="margin-top:1rem;">Gestionar Evidencias</a>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

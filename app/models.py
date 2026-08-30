@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, ForeignKey, String, Integer, Text, func
+from sqlalchemy import JSON, ForeignKey, String, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -43,24 +43,20 @@ class User(Base):
         nullable=False
     )
 
-
 class Membership(Base):
     __tablename__ = "memberships"
-    id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid()
+    __table_args__ = (
+        UniqueConstraint("user_id", "tenant_id"),
+        {"schema": "public"},
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id"),
-        nullable=False
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String)
+    # ↓↓↓ ESTE CAMPO DEBE EXISTIR ↓↓↓
+    client_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
     )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id"),
-        nullable=False
-    )
-    role: Mapped[str] = mapped_column(String, nullable=False)
-
 
 class Client(Base):
     __tablename__ = "clients"

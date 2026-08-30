@@ -6,3 +6,6 @@ data/evidence/*
 !data/evidence/.gitkeep
 .pytest_cache/ .mypy_cache/ .ruff_cache/
 dist/ build/ *.egg-info/
+# Entornos
+.env
+.env.production

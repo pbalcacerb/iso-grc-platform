@@ -21,6 +21,12 @@ from app.permissions import require_perm, role_can
 from app.security import parse_session, require_role
 from app.worker.assess import assess_compliance, assess_item, ingest_evidence_file
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+# Inicializar limiter para rate limiting
+limiter = Limiter(key_func=get_remote_address)
+
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
 hasher = argon2.PasswordHasher()
@@ -51,12 +57,15 @@ def register_page(request: Request) -> HTMLResponse:
 
 
 @router.post("/web/register")
+@limiter.limit("5/minute")
 def web_register(
+    request: Request,
     email: str = Form(...),
     password: str = Form(...),
     full_name: str = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    """Registro de nuevo usuario con rate limiting (5/min)."""
     if db.query(User).filter(User.email == email).first():
         return RedirectResponse(url="/login?error=email_exists", status_code=303)
 
@@ -75,11 +84,14 @@ def web_register(
 
 
 @router.post("/web/login")
+@limiter.limit("10/minute")
 def web_login(
+    request: Request,
     email: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    """Login con rate limiting (10/min) para prevenir brute force."""
     user = db.query(User).filter(User.email == email).first()
     if not user:
         return RedirectResponse(url="/login?error=invalid", status_code=303)
@@ -372,14 +384,16 @@ def review_queue(
 
 
 @router.post("/audit/{audit_id}/item/{item_id}/evidence")
+@limiter.limit("20/minute")
 def upload_item_evidence(
+    request: Request,
     audit_id: str,
     item_id: str,
     file: List[UploadFile] = File(...),
     membership: Membership = Depends(require_perm("upload_evidence")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    """Sube 1..5 evidencias al ítem y ejecuta un análisis consolidado."""
+    """Sube 1..5 evidencias al ítem y ejecuta un análisis consolidado (20/min)."""
     item = db.query(ChecklistItem).filter(
         ChecklistItem.id == uuid.UUID(item_id),
         ChecklistItem.tenant_id == membership.tenant_id,
@@ -455,6 +469,7 @@ def upload_item_evidence(
 
 
 @router.post("/audit/{audit_id}/analyze")
+@limiter.limit("20/minute")
 def analyze(
     request: Request,
     audit_id: str,
@@ -462,6 +477,7 @@ def analyze(
     membership: Membership = Depends(require_perm("upload_evidence")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    """Análisis de evidencia con rate limiting (20/min) para proteger costos de IA."""
     tenant_id = membership.tenant_id
     user_id = membership.user_id
 

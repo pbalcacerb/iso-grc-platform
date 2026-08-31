@@ -67,5 +67,13 @@ class Settings:
         # Dimensión de vectores (debe coincidir con vector(1024) del schema)
         self.EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 
+        # Umbrales del pipeline de IA
+        self.RETRIEVAL_DISTANCE_THRESHOLD = float(
+            os.environ.get("RETRIEVAL_DISTANCE_THRESHOLD", "0.9")
+        )
+        self.CONFIDENCE_REVIEW_THRESHOLD = float(
+            os.environ.get("CONFIDENCE_REVIEW_THRESHOLD", "0.75")
+        )
+
 
 settings = Settings()

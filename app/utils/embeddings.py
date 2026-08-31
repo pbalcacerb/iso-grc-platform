@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.ai.providers import get_provider
 from app.models import EvidenceTextChunk
 from app.utils.chunker import chunk_text
-
+from app.config import settings
 
 def generate_embedding(text: str) -> List[float]:
     """Genera un embedding usando el proveedor activo."""
@@ -71,10 +71,17 @@ def search_similar_chunks(
     audit_id: uuid.UUID,
     db: Session,
     top_k: int = 5,
-    threshold: float = 0.6,
+    threshold: float | None = None,
     item_id: Optional[uuid.UUID] = None,
 ) -> List[Tuple[EvidenceTextChunk, float]]:
-    """Busca chunks relevantes por similitud coseno (opcionalmente por ítem)."""
+    """Busca chunks relevantes por similitud coseno (opcionalmente por ítem).
+    
+    Si threshold no se especifica, usa settings.RETRIEVAL_DISTANCE_THRESHOLD.
+    Semántica: threshold = similitud mínima (0..1). Cuanto menor, más permisivo.
+    """
+    if threshold is None:
+        threshold = settings.RETRIEVAL_DISTANCE_THRESHOLD
+
     provider = get_provider()
     query_vec = provider.embed(query_text)
     query_str = "[" + ",".join(str(x) for x in query_vec) + "]"

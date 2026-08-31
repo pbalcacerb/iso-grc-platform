@@ -5,13 +5,13 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.ai.providers import get_provider
+from app.config import settings
 from app.models import (
     AIAnalysis, EvidenceFile, EvidenceTextChunk, EvidenceTextExtraction,
 )
 from app.utils.embeddings import create_chunks_and_embeddings, search_similar_chunks
 from app.utils.text_extractor import extract_text_from_file
 
-CONFIDENCE_THRESHOLD = 0.75
 DEFAULT_REQUIREMENT = "Requisitos generales de ISO 9001:2015 aplicables al ítem auditado."
 
 
@@ -85,7 +85,7 @@ def _assess_scope(
 
     similar = search_similar_chunks(
         query_text=requirement, audit_id=audit_id, db=db,
-        top_k=5, threshold=0.5, item_id=item_id,
+        top_k=5, item_id=item_id,
     )
     if not similar:
         _save_analysis(db, tenant_id, audit_id, evidence_file_id,
@@ -129,7 +129,7 @@ RESPONDE ÚNICAMENTE con un objeto JSON válido:
         if not is_relevant:
             assessment = "insufficient_evidence"
             confidence = min(confidence, 0.3)
-        requires_review = is_relevant and confidence < CONFIDENCE_THRESHOLD
+        requires_review = is_relevant and confidence < settings.CONFIDENCE_REVIEW_THRESHOLD
 
         _save_analysis(db, tenant_id, audit_id, evidence_file_id,
                        compliance_assessment=assessment,

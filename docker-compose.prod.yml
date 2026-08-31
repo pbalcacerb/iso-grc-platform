@@ -29,7 +29,8 @@
       RETRIEVAL_DISTANCE_THRESHOLD: 0.25
       CONFIDENCE_REVIEW_THRESHOLD: 0.65
     ports:
-      - "8000:8000"
+      - ports:
+          "127.0.0.1:8000:8000"   # Solo accesible desde dentro del servidor
     volumes:
       - evidence:/app/data/evidence
 

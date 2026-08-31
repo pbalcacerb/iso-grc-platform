@@ -1,0 +1,38 @@
+﻿services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: grc
+      POSTGRES_PASSWORD: grc
+      POSTGRES_DB: grc
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grc -d grc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://grc:grc@db:5432/grc
+      AI_PROVIDER: azure_openai
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION}
+      AZURE_CHAT_DEPLOYMENT: ${AZURE_CHAT_DEPLOYMENT}
+      AZURE_EMBEDDING_DEPLOYMENT: ${AZURE_EMBEDDING_DEPLOYMENT}
+      RETRIEVAL_DISTANCE_THRESHOLD: 0.25
+      CONFIDENCE_REVIEW_THRESHOLD: 0.65
+    ports:
+      - "8000:8000"
+    volumes:
+      - evidence:/app/data/evidence
+
+volumes:
+  pgdata:
+  evidence:

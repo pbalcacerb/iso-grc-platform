@@ -1,3 +1,4 @@
+@'
 name: Deploy to Production
 
 on:
@@ -8,21 +9,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H 165.22.181.183 >> ~/.ssh/known_hosts
-
-      - name: Deploy to server
-        run: |
-          ssh root@165.22.181.183 << 'EOF'
+      - name: Desplegar via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
             cd /root/iso-grc
-            git pull
-            docker compose -f docker-compose.prod.yml pull
+            git fetch origin main
+            git reset --hard origin/main
             docker compose -f docker-compose.prod.yml up -d --build
-          EOF
+'@ | Set-Content -Path .github\workflows\deploy.yml -Encoding UTF8

@@ -1,23 +1,20 @@
 {% extends "base.html" %}
+
+{% block page_title %}Panel de Control{% endblock %}
+
 {% block content %}
-<div class="header">
-    <h1>Panel de Control</h1>
-    <a href="/web/logout" class="btn" style="background: #64748b;">Cerrar Sesión</a>
-    {% if role == 'owner' %}
-    <a href="/users" class="btn">Gestionar Usuarios</a>
-    {% endif %}
-    {% if role in ['owner', 'lead_auditor', 'auditor', 'coordinator'] %}
-    <a href="/review-queue" class="btn" style="background: #ca8a04;">🔍 Cola de Revisión</a>
-    {% endif %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h2 class="text-xl font-semibold text-slate-800">Auditorías Activas</h2>
+        <p class="text-sm text-slate-500">Resumen del estado de cumplimiento por cliente.</p>
+    </div>
+    <div class="flex gap-2">
+        <a href="/clients/new" class="btn">+ Nuevo Cliente</a>
+        <a href="/audits/new" class="btn">+ Nueva Auditoría</a>
+    </div>
 </div>
 
-<div style="margin-bottom: 1rem;">
-    <a href="/clients/new" class="btn">+ Nuevo Cliente</a>
-    <a href="/audits/new" class="btn" style="margin-left: 0.5rem;">+ Nueva Auditoría</a>
-</div>
-
-<div class="card">
-    <h3 style="margin-top: 0;">Auditorías Activas</h3>
+<div class="card" style="margin-bottom: 0;">
     <table>
         <thead>
             <tr>
@@ -29,16 +26,26 @@
         </thead>
         <tbody>
             {% for audit in audits %}
-            <tr>
-                <td>{{ audit.name }}</td>
-                <td>{{ audit.client_name }}</td>
-                <td><span class="badge badge-warning">{{ audit.status }}</span></td>
+            <tr class="hover:bg-slate-50">
+                <td class="font-medium text-slate-800">{{ audit.name }}</td>
+                <td class="text-slate-600">{{ audit.client_name }}</td>
+                <td>
+                    {% if audit.status == 'active' %}
+                    <span class="badge badge-success">active</span>
+                    {% elif audit.status == 'planned' %}
+                    <span class="badge badge-warning">planned</span>
+                    {% elif audit.status == 'completed' %}
+                    <span class="badge badge-muted">completed</span>
+                    {% else %}
+                    <span class="badge badge-muted">{{ audit.status }}</span>
+                    {% endif %}
+                </td>
                 <td><a href="/audit/{{ audit.id }}" class="btn">Ver Detalle y Analizar</a></td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="4" style="text-align: center; color: #64748b;">
-                    No hay auditorías activas. Crea una desde la API.
+                <td colspan="4" class="text-center text-slate-500 py-8">
+                    No hay auditorías activas. Crea una con "+ Nueva Auditoría".
                 </td>
             </tr>
             {% endfor %}

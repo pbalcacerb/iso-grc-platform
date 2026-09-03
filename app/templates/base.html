@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ISO GRC Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* ===== Componentes legacy (se conservan para no romper otras páginas) ===== */
         :root {
-            --primary: #2563eb;
-            --bg: #f8fafc;
+            --primary: #1e3a5f;
+            --bg: #f1f5f9;
             --text: #1e293b;
             --border: #e2e8f0;
             --success: #16a34a;
@@ -16,16 +18,8 @@
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
             color: var(--text);
-            margin: 0;
-            padding: 0;
             line-height: 1.5;
-        }
-        .container {
-            max-width: 900px;
-            margin: 2rem auto;
-            padding: 0 1rem;
         }
         .card {
             background: white;
@@ -73,11 +67,7 @@
         .badge-warning { background: #fef9c3; color: var(--warning); }
         .badge-danger { background: #fee2e2; color: var(--danger); }
         table { width: 100%; border-collapse: collapse; }
-        th, td {
-            text-align: left;
-            padding: 0.75rem;
-            border-bottom: 1px solid var(--border);
-        }
+        th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid var(--border); }
         th {
             font-weight: 600;
             color: #64748b;
@@ -93,9 +83,44 @@
         .header h1 { margin: 0; font-size: 1.5rem; }
     </style>
 </head>
-<body>
-    <div class="container">
-        {% block content %}{% endblock %}
+<body class="bg-slate-100">
+<div class="flex min-h-screen">
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="fixed inset-y-0 left-0 w-60 bg-slate-900 flex flex-col">
+        <div class="px-5 py-5 border-b border-slate-800">
+            <div class="text-white font-bold text-lg tracking-tight">ISO GRC</div>
+            <div class="text-xs text-slate-500">Plataforma de Auditoría</div>
+        </div>
+        <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
+            <a href="/dashboard" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Panel de Control</a>
+            {% if role in ['owner', 'lead_auditor', 'auditor', 'coordinator'] %}
+            <a href="/review-queue" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Cola de Revisión</a>
+            {% endif %}
+            {% if role == 'owner' %}
+            <a href="/users" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Gestionar Usuarios</a>
+            {% endif %}
+            <div class="pt-4 mt-4 px-3 border-t border-slate-800 text-xs uppercase tracking-wide text-slate-500">Acciones</div>
+            <a href="/audits/new" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">+ Nueva Auditoría</a>
+            <a href="/clients/new" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">+ Nuevo Cliente</a>
+        </nav>
+        <div class="px-5 py-4 border-t border-slate-800 text-xs">
+            <div class="text-slate-400 mb-2 truncate">{{ user_email | default('', true) }}</div>
+            <a href="/web/logout" class="text-red-400 hover:text-red-300">Cerrar Sesión</a>
+        </div>
+    </aside>
+
+    <!-- ===== CONTENIDO ===== -->
+    <div class="flex-1 ml-60">
+        <header class="sticky top-0 z-10 bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+            <h1 class="text-lg font-semibold text-slate-800">{% block page_title %}Panel de Control{% endblock %}</h1>
+            <span class="badge badge-muted">{{ role | default('', true) }}</span>
+        </header>
+        <main class="p-8">
+            {% block content %}{% endblock %}
+        </main>
     </div>
+
+</div>
 </body>
 </html>

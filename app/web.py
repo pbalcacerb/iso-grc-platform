@@ -1,7 +1,9 @@
 """Rutas web server-rendered (Jinja2) para la demo."""
 import hashlib
 import re
+import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
 
@@ -13,9 +15,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+# CORRECCIÓN 1: Se agregan AuditLog y PasswordResetToken a la importación
 from app.models import (
-    AIAnalysis, Audit, ChecklistItem, Clause, Client,
-    EvidenceFile, Membership, QuestionPack, Standard, Tenant, User,
+    AIAnalysis, Audit, AuditLog, ChecklistItem, Clause, Client,
+    EvidenceFile, Membership, PasswordResetToken, QuestionPack, 
+    Standard, Tenant, User,
 )
 from app.permissions import require_perm, role_can
 from app.security import parse_session, require_role
@@ -591,8 +595,11 @@ def manage_users(
         .filter(Membership.tenant_id == membership.tenant_id)
         .all()
     )
-    users = [{"email": u.email, "full_name": u.full_name, "role": m.role} for u, m in rows]
-    return templates.TemplateResponse(request, "manage_users.html", {"users": users})
+    users = [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": m.role} for u, m in rows]
+    # CORRECCIÓN 2: Se agrega el retorno del TemplateResponse con la lista de usuarios
+    return templates.TemplateResponse(
+        request, "manage_users.html", {"users": users}
+    )
 
 
 @router.post("/users/invite")
@@ -654,3 +661,109 @@ def approve_item(
     item.status = "completed"
     db.commit()
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+
+# ===== Incremento 2: recuperación de contraseña (mediada por owner, un solo uso) =====
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _find_valid_token(db: Session, raw_token: str):
+    """Token existente, sin usar y no expirado (no lo consume)."""
+    th = hashlib.sha256(raw_token.encode()).hexdigest()
+    tok = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token_hash == th
+    ).first()
+    if tok is None or tok.used_at is not None or tok.expires_at < _utcnow():
+        return None
+    return tok
+
+
+@router.post("/users/{user_id}/reset-link")
+@limiter.limit("10/minute")
+def generate_reset_link(
+    request: Request,
+    user_id: str,
+    membership: Membership = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+):
+    """Owner genera enlace de un solo uso (60 min) y lo entrega por canal confiable."""
+    try:
+        target_id = uuid.UUID(user_id)
+    except ValueError:
+        return RedirectResponse(url="/users", status_code=303)
+    target = db.query(User).filter(User.id == target_id).first()
+    if not target:
+        return RedirectResponse(url="/users", status_code=303)
+
+    # Invalida tokens previos sin usar de este usuario
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == target.id,
+        PasswordResetToken.used_at.is_(None),
+    ).update({"used_at": _utcnow()})
+
+    raw = secrets.token_urlsafe(32)
+    db.add(PasswordResetToken(
+        user_id=target.id,
+        token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+        created_by=membership.user_id,
+        expires_at=_utcnow() + timedelta(minutes=60),
+    ))
+    db.add(AuditLog(
+        tenant_id=membership.tenant_id,
+        actor_user_id=membership.user_id,
+        action="password_reset_link_generated",
+        entity_type="user",
+        entity_id=target.id,
+    ))
+    db.commit()
+
+    full_link = str(request.base_url).rstrip("/") + f"/reset-password?token={raw}"
+    return templates.TemplateResponse(
+        request, "reset_link.html", {"email": target.email, "link": full_link},
+    )
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+def reset_password_page(
+    request: Request, token: str = "", db: Session = Depends(get_db),
+) -> HTMLResponse:
+    valid = token != "" and _find_valid_token(db, token) is not None
+    return templates.TemplateResponse(
+        request, "reset_password.html",
+        {"token": token, "valid": valid, "error": request.query_params.get("error")},
+    )
+
+
+@router.post("/web/reset-password")
+@limiter.limit("10/minute")
+def web_reset_password(
+    request: Request,
+    token: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    tok = _find_valid_token(db, token)
+    if tok is None:
+        return RedirectResponse(url="/reset-password?error=invalid", status_code=303)
+    if len(password) < 8:
+        return RedirectResponse(
+            url=f"/reset-password?token={token}&error=weak", status_code=303
+        )
+    user = db.query(User).filter(User.id == tok.user_id).first()
+    if not user or user.status != "active":
+        return RedirectResponse(url="/reset-password?error=invalid", status_code=303)
+
+    user.password_hash = hasher.hash(password)
+    tok.used_at = _utcnow()
+    m = db.query(Membership).filter(Membership.user_id == user.id).first()
+    if m:
+        db.add(AuditLog(
+            tenant_id=m.tenant_id,
+            actor_user_id=user.id,
+            action="password_reset_completed",
+            entity_type="user",
+            entity_id=user.id,
+        ))
+    db.commit()
+    return RedirectResponse(url="/login?msg=password_reset", status_code=303)

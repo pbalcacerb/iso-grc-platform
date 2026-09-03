@@ -1,7 +1,11 @@
 """Aplicación principal FastAPI."""
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
 from fastapi import FastAPI
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
 from app.api.audits import router as audits_router
@@ -14,31 +18,50 @@ from app.health import router as health_router
 from app.middleware import RequestLoggingMiddleware, setup_json_logging
 from app.web import router as web_router
 
-# Configurar logging JSON estructurado (WP3)
+# 1. Configurar logging estructurado
 setup_json_logging()
 
-# Rate limiter global (WP3)
+# 2. Configurar Rate Limiter Global
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
-app = FastAPI(title="ISO GRC Platform", version="0.1.0")
 
-# Middleware de logging de requests (WP3)
-app.add_middleware(RequestLoggingMiddleware)
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Maneja los eventos de inicio y cierre de la aplicación (Lifespan)."""
+    from app.db import engine
+    from app.models import Base
 
-# Rate limiting
+    # Crear tablas idempotentes al iniciar
+    Base.metadata.create_all(bind=engine)
+    
+    yield
+
+
+app = FastAPI(
+    title="ISO GRC Platform",
+    version="0.1.0",
+    lifespan=lifespan
+)
+
+# 3. Estado y Manejador de Excepciones para Rate Limit
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Routers de salud y web
+# 4. Registro de Middlewares (Orden Correcto: de afuera hacia adentro)
+# Primero se ejecuta RequestLoggingMiddleware y luego SlowAPIMiddleware
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SlowAPIMiddleware)
+
+# 5. Routers de Sistema y Web
 app.include_router(health_router)
 app.include_router(web_router)
 
-# Routers de autenticación (API)
+# 6. Routers de Autenticación (API)
 app.include_router(register_router, prefix="/auth")
 app.include_router(login_router, prefix="/auth")
 app.include_router(logout_router, prefix="/auth")
 
-# Routers de negocio (API)
+# 7. Routers de Negocio (API)
 app.include_router(clients_router)
 app.include_router(audits_router)
 app.include_router(evidence_router)

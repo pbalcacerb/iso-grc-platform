@@ -3,6 +3,11 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
+from app.models import (
+    AIAnalysis, Audit, AuditLog, ChecklistItem, Clause, Client,
+    EvidenceFile, Membership, PasswordResetToken, QuestionPack, Standard, Tenant, User,
+)
+
 from sqlalchemy import JSON, ForeignKey, String, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -380,4 +385,22 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(),
         nullable=False
+    )
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid()
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), nullable=False
     )

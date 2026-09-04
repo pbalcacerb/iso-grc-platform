@@ -15,7 +15,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-# CORRECCIÓN 1: Se agregan AuditLog y PasswordResetToken a la importación
 from app.models import (
     AIAnalysis, Audit, AuditLog, ChecklistItem, Clause, Client,
     EvidenceFile, Membership, PasswordResetToken, QuestionPack, 
@@ -43,6 +42,19 @@ def _parse_session(request: Request) -> tuple[uuid.UUID | None, uuid.UUID | None
     tenant = uuid.UUID(m_t.group(1)) if m_t else None
     user = uuid.UUID(m_u.group(1)) if m_u else None
     return tenant, user
+
+
+def get_user_role(request: Request) -> str | None:
+    """Helper para extraer el rol del usuario desde la cookie de sesión."""
+    tenant_id, user_id = _parse_session(request)
+    if not user_id:
+        return None
+    db = next(get_db())
+    membership = db.query(Membership).filter(
+        Membership.user_id == user_id,
+        Membership.tenant_id == tenant_id,
+    ).first()
+    return membership.role if membership else None
 
 
 @router.get("/", response_class=RedirectResponse)
@@ -159,7 +171,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
 @router.get("/clients/new", response_class=HTMLResponse)
 def new_client(
     request: Request,
-    membership: Membership = Depends(require_role("owner", "auditor")),
+    membership: Membership = Depends(require_perm("create_audit")),
 ) -> HTMLResponse:
     return templates.TemplateResponse(request, "create_client.html")
 
@@ -171,7 +183,7 @@ def create_client_web(
     sector: str = Form(""),
     country: str = Form(""),
     confidentiality_level: str = Form("internal"),
-    membership: Membership = Depends(require_role("owner", "auditor")),
+    membership: Membership = Depends(require_perm("create_audit")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     client = Client(
@@ -190,7 +202,7 @@ def create_client_web(
 @router.get("/audits/new", response_class=HTMLResponse)
 def new_audit(
     request: Request,
-    membership: Membership = Depends(require_role("owner", "auditor")),
+    membership: Membership = Depends(require_perm("create_audit")),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     clients = db.query(Client).filter(Client.tenant_id == membership.tenant_id).all()
@@ -207,7 +219,7 @@ def create_audit_web(
     client_id: str = Form(...),
     standard_id: str = Form(...),
     status: str = Form("planned"),
-    membership: Membership = Depends(require_role("owner", "auditor")),
+    membership: Membership = Depends(require_perm("create_audit")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     audit = Audit(
@@ -586,7 +598,7 @@ def _clause_number(db: Session, item) -> str:
 @router.get("/users", response_class=HTMLResponse)
 def manage_users(
     request: Request,
-    membership: Membership = Depends(require_role("owner")),
+    membership: Membership = Depends(require_perm("manage_users")),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     rows = (
@@ -596,7 +608,6 @@ def manage_users(
         .all()
     )
     users = [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": m.role} for u, m in rows]
-    # CORRECCIÓN 2: Se agrega el retorno del TemplateResponse con la lista de usuarios
     return templates.TemplateResponse(
         request, "manage_users.html", {"users": users}
     )
@@ -608,7 +619,7 @@ def invite_user(
     full_name: str = Form(...),
     password: str = Form(...),
     role: str = Form(...),
-    membership: Membership = Depends(require_role("owner")),
+    membership: Membership = Depends(require_perm("manage_users")),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     valid_roles = (
@@ -684,7 +695,7 @@ def _find_valid_token(db: Session, raw_token: str):
 def generate_reset_link(
     request: Request,
     user_id: str,
-    membership: Membership = Depends(require_role("owner")),
+    membership: Membership = Depends(require_perm("manage_users")),
     db: Session = Depends(get_db),
 ):
     """Owner genera enlace de un solo uso (60 min) y lo entrega por canal confiable."""

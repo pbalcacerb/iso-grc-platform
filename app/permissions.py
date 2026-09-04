@@ -31,9 +31,12 @@ PERMISSIONS: dict[str, set[str]] = {
     "coordinator": {  # Revisor: trazabilidad y agenda, edición limitada (NO aprueba)
         "manage_schedule", "reopen_item", "view_internal",
     },
-       "observer": {     # Experto técnico + auditor en formación (solo lectura + comentar)
+    "observer": {  # Experto técnico + auditor en formación
+        "view_dashboard",
+        "view_portal",
+        "upload_evidence",
         "comment",
-    },
+        },
 
     # ===== ORGANIZACIÓN AUDITADA (cliente) =====
     "client_responsible": {  # Líder ISO / Responsable

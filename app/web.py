@@ -15,6 +15,9 @@ from jinja2 import pass_context
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import json
+import asyncio
+
 from app.db import get_db
 from app.models import (
     AIAnalysis, Audit, AuditLog, ChecklistItem, Clause, Client,
@@ -23,7 +26,7 @@ from app.models import (
 )
 from app.permissions import require_perm, role_can
 from app.security import parse_session, require_role
-from app.worker.assess import assess_compliance, assess_item, ingest_evidence_file
+from app.worker.assess import assess_compliance, assess_item
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -467,9 +470,8 @@ def upload_item_evidence(
         db.commit()
         db.refresh(evidence)
 
-        ingest_evidence_file(evidence, db, membership.tenant_id)
-        last_evidence = evidence
-
+        if last_evidence is None:
+            last_evidence = evidence
     if last_evidence is None:
         return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
 
@@ -693,6 +695,70 @@ def approve_item(
     db.commit()
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
 
+@router.get("/audit/{audit_id}/stream")
+async def stream_audit_updates(
+    request: Request,
+    audit_id: str,
+    membership: Membership = Depends(require_perm("view_internal")),
+    db: Session = Depends(get_db),
+):
+    """Stream SSE para análisis en tiempo real (usa evidencia más reciente)."""
+    from fastapi.responses import StreamingResponse
+    import json
+
+    # Obtener evidencia más reciente de la auditoría (NO mock)
+    latest_evidence = (
+        db.query(EvidenceFile)
+        .filter(EvidenceFile.audit_id == uuid.UUID(audit_id))
+        .order_by(EvidenceFile.created_at.desc())
+        .first()
+    )
+    
+    if not latest_evidence:
+        # Retornar error SSE válido en lugar de 404
+        async def error_generator():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'No evidence found'})}\n\n"
+        return StreamingResponse(error_generator(), media_type="text/event-stream")
+
+    async def event_generator():
+        queue = asyncio.Queue(maxsize=10)
+        
+        # Ejecutar análisis SÍNCRONO en thread pool (no bloquea event loop)
+        loop = asyncio.get_event_loop()
+        analysis_task = loop.run_in_executor(
+            None,  # Default thread pool
+            assess_compliance,
+            latest_evidence.id,
+            uuid.UUID(audit_id),
+            db,
+            membership.tenant_id,
+            None,  # requirement_text
+            None,  # checklist_item_id
+            queue  # sse_queue
+        )
+
+        try:
+            while True:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                yield f"data: {json.dumps(event)}\n\n"
+                if event.get("type") in ("complete", "error"):
+                    break
+        except asyncio.TimeoutError:
+            yield f"data: {json.dumps({'type': 'timeout', 'message': 'Analysis timed out'})}\n\n"
+        finally:
+            # Cancelar tarea si aún corre
+            if not analysis_task.done():
+                analysis_task.cancel()
+            # Limpiar queue residual
+            while not queue.empty():
+                try: queue.get_nowait()
+                except: pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
 # ===== Incremento 2: recuperación de contraseña (mediada por owner, un solo uso) =====
 
 def _utcnow() -> datetime:

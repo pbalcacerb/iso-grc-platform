@@ -11,6 +11,7 @@ import argon2
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -55,6 +56,25 @@ def get_user_role(request: Request) -> str | None:
         Membership.tenant_id == tenant_id,
     ).first()
     return membership.role if membership else None
+
+def jinja_role_can(first_arg, permission: str) -> bool:
+    """Función Jinja2 flexible: acepta Request o rol-string como primer arg."""
+    # Si el primer argumento es un string, úsalo directamente como rol
+    if isinstance(first_arg, str):
+        role = first_arg
+    # Si es un Request, extrae el rol internamente
+    elif hasattr(first_arg, 'cookies'):
+        role = get_user_role(first_arg)
+    else:
+        role = None
+    
+    return role_can(role, permission) if role else False
+
+# Registra los helpers como funciones disponibles en TODOS los templates
+templates.env.globals.update({
+    "get_user_role": get_user_role,
+    "role_can": jinja_role_can,
+})
 
 
 @router.get("/", response_class=RedirectResponse)

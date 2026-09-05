@@ -8,10 +8,14 @@
         <h2 class="text-xl font-semibold text-slate-800">Auditorías Activas</h2>
         <p class="text-sm text-slate-500">Resumen del estado de cumplimiento por cliente.</p>
     </div>
+    
+    <!-- Solo mostrar botones de creación si el usuario tiene permiso -->
+    {% if role_can(request, 'create_audit') %}
     <div class="flex gap-2">
         <a href="/clients/new" class="btn">+ Nuevo Cliente</a>
         <a href="/audits/new" class="btn">+ Nueva Auditoría</a>
     </div>
+    {% endif %}
 </div>
 
 <div class="card" style="margin-bottom: 0;">

@@ -84,6 +84,7 @@
     </style>
 </head>
 <body class="bg-slate-100">
+    {% set role = get_user_role(request) %}
 <div class="flex min-h-screen">
 
     <!-- ===== SIDEBAR ===== -->
@@ -93,16 +94,27 @@
             <div class="text-xs text-slate-500">Plataforma de Auditoría</div>
         </div>
         <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
-            <a href="/dashboard" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Panel de Control</a>
-            {% if role in ['owner', 'lead_auditor', 'auditor', 'coordinator'] %}
-            <a href="/review-queue" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Cola de Revisión</a>
+            {% if role_can(role, 'view_dashboard') %}
+                <a href="/dashboard" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Panel de Control</a>
             {% endif %}
-            {% if role == 'owner' %}
-            <a href="/users" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Gestionar Usuarios</a>
+            
+            {% if role_can(role, 'view_internal') %}
+                <a href="/review-queue" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Cola de Revisión</a>
             {% endif %}
+            
+            {% if role_can(role, 'manage_users') %}
+                <a href="/users" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">Gestionar Usuarios</a>
+            {% endif %}
+            
             <div class="pt-4 mt-4 px-3 border-t border-slate-800 text-xs uppercase tracking-wide text-slate-500">Acciones</div>
-            <a href="/audits/new" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">+ Nueva Auditoría</a>
-            <a href="/clients/new" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">+ Nuevo Cliente</a>
+            
+            {% if role_can(role, 'create_audit') %}
+                <a href="/audits/new" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">+ Nueva Auditoría</a>
+            {% endif %}
+            
+            {% if role_can(role, 'create_audit') %}
+                <a href="/clients/new" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">+ Nuevo Cliente</a>
+            {% endif %}
         </nav>
         <div class="px-5 py-4 border-t border-slate-800 text-xs">
             <div class="text-slate-400 mb-2 truncate">{{ user_email | default('', true) }}</div>
@@ -116,7 +128,7 @@
             <h1 class="text-lg font-semibold text-slate-800">{% block page_title %}Panel de Control{% endblock %}</h1>
             <span class="badge badge-muted">{{ role | default('', true) }}</span>
         </header>
-        <main class="p-8">
+       <main class="p-8">
             {% block content %}{% endblock %}
         </main>
     </div>

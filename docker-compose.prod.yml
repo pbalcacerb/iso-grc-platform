@@ -1,6 +1,8 @@
-﻿services:
+services:
   db:
     image: pgvector/pgvector:pg16
+    container_name: grc-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: grc
       POSTGRES_PASSWORD: grc
@@ -15,6 +17,8 @@
 
   app:
     build: .
+    container_name: iso-grc-app-1
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -29,8 +33,7 @@
       RETRIEVAL_DISTANCE_THRESHOLD: 0.25
       CONFIDENCE_REVIEW_THRESHOLD: 0.65
     ports:
-      - ports:
-          "127.0.0.1:8000:8000"   # Solo accesible desde dentro del servidor
+      - "127.0.0.1:8000:8000"
     volumes:
       - evidence:/app/data/evidence
 

@@ -3,10 +3,6 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from app.models import (
-    AIAnalysis, Audit, AuditLog, ChecklistItem, Clause, Client,
-    EvidenceFile, Membership, PasswordResetToken, QuestionPack, Standard, Tenant, User,
-)
 
 from sqlalchemy import JSON, ForeignKey, String, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -380,8 +376,8 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String, nullable=False)
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[Optional[uuid.UUID]] = mapped_column()
-    before: Mapped[Optional[str]] = mapped_column(Text)
-    after: Mapped[Optional[str]] = mapped_column(Text)
+    before: Mapped[Optional[str]] = mapped_column(JSON)
+    after: Mapped[Optional[str]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(),
         nullable=False

@@ -1,20 +1,38 @@
-"""Modelos SQLAlchemy 2.0 con UUID para ISO GRC Platform."""
+﻿"""Modelos SQLAlchemy 2.0 con UUID para ISO GRC Platform."""
 import uuid
 from datetime import datetime
 from typing import Optional
 
-
+# Imports de SQLAlchemy
 from sqlalchemy import JSON, ForeignKey, String, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 
 class Base(DeclarativeBase):
     pass
 
 
+class Standard(Base):
+    __tablename__ = "standards"
+    
+    # Usamos PG_UUID para compatibilidad nativa con PostgreSQL
+    id: Mapped[str] = mapped_column(
+        PG_UUID(as_uuid=True), 
+        primary_key=True, 
+        default=uuid.uuid4, 
+        server_default=func.gen_random_uuid()
+    )
+    code: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+
+
 class Tenant(Base):
     __tablename__ = "tenants"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -31,6 +49,7 @@ class Tenant(Base):
 class User(Base):
     __tablename__ = "users"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -44,24 +63,27 @@ class User(Base):
         nullable=False
     )
 
+
 class Membership(Base):
     __tablename__ = "memberships"
     __table_args__ = (
         UniqueConstraint("user_id", "tenant_id"),
         {"schema": "public"},
     )
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String)
-    # ↓↓↓ ESTE CAMPO DEBE EXISTIR ↓↓↓
+    # Campo client_id para aislamiento por cliente
     client_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
     )
 
+
 class Client(Base):
     __tablename__ = "clients"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -81,22 +103,10 @@ class Client(Base):
     status: Mapped[str] = mapped_column(String, default="active", nullable=False)
 
 
-class Standard(Base):
-    __tablename__ = "standards"
-    id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid()
-    )
-    code: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    version: Mapped[str] = mapped_column(String, default="", nullable=False)
-    status: Mapped[str] = mapped_column(String, default="active", nullable=False)
-
-
 class Clause(Base):
     __tablename__ = "clauses"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -113,6 +123,7 @@ class Clause(Base):
 class QuestionPack(Base):
     __tablename__ = "question_packs"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -130,6 +141,7 @@ class QuestionPack(Base):
 class Audit(Base):
     __tablename__ = "audits"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -153,6 +165,7 @@ class Audit(Base):
 class ChecklistItem(Base):
     __tablename__ = "checklist_items"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -178,6 +191,7 @@ class ChecklistItem(Base):
 class EvidenceFile(Base):
     __tablename__ = "evidence_files"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -216,6 +230,7 @@ class EvidenceFile(Base):
 class EvidenceTextExtraction(Base):
     __tablename__ = "evidence_text_extractions"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -240,6 +255,7 @@ class EvidenceTextExtraction(Base):
 class EvidenceTextChunk(Base):
     __tablename__ = "evidence_text_chunks"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -262,6 +278,7 @@ class EvidenceTextChunk(Base):
 class EvidenceVector(Base):
     __tablename__ = "evidence_vectors"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -279,6 +296,7 @@ class EvidenceVector(Base):
 class AIJob(Base):
     __tablename__ = "ai_jobs"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -302,6 +320,7 @@ class AIJob(Base):
 class AIAnalysis(Base):
     __tablename__ = "ai_analyses"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -320,8 +339,8 @@ class AIAnalysis(Base):
         default="insufficient_evidence",
         nullable=False
     )
-    gaps: Mapped[list] = mapped_column(JSON, default=list)          # ← Debe ser JSON, no String
-    risks: Mapped[list] = mapped_column(JSON, default=list)         # ← Debe ser JSON, no String
+    gaps: Mapped[list] = mapped_column(JSON, default=list)
+    risks: Mapped[list] = mapped_column(JSON, default=list)
     confidence: Mapped[Optional[float]] = mapped_column()
     requires_human_review: Mapped[bool] = mapped_column(default=True, nullable=False)
     review_status: Mapped[str] = mapped_column(
@@ -330,7 +349,7 @@ class AIAnalysis(Base):
         nullable=False
     )
     reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    cited_chunk_ids: Mapped[list] = mapped_column(JSON, default=list)  # ← Debe ser JSON, no String
+    cited_chunk_ids: Mapped[list] = mapped_column(JSON, default=list)
     provider: Mapped[str] = mapped_column(String, default="", nullable=False)
     tokens_est: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -342,6 +361,7 @@ class AIAnalysis(Base):
 class Finding(Base):
     __tablename__ = "findings"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -367,6 +387,7 @@ class Finding(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()
@@ -383,9 +404,11 @@ class AuditLog(Base):
         nullable=False
     )
 
+
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
     id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid()

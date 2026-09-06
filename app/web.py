@@ -1,4 +1,4 @@
-"""Rutas web server-rendered (Jinja2) para la demo."""
+"""Rutas web server-rendered (Jinja2) para la demo ISO GRC Platform."""
 import asyncio
 import hashlib
 import json
@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import argon2
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
@@ -19,6 +19,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+# Imports internos
 from app.db import get_db
 from app.models import (
     AIAnalysis, Audit, AuditLog, ChecklistItem, Clause, Client,
@@ -29,15 +30,17 @@ from app.permissions import require_perm, role_can
 from app.security import parse_session, require_role
 from app.worker.assess import assess_compliance, assess_item
 
-# Inicializar limiter para rate limiting
-limiter = Limiter(key_func=get_remote_address)
-
+# Inicialización del Router y Templates
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
 hasher = argon2.PasswordHasher()
 
+# Rate Limiter específico para rutas web
+limiter = Limiter(key_func=get_remote_address)
+
 
 def _parse_session(request: Request) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+    """Extrae tenant_id y user_id desde la cookie de sesión."""
     cookie = request.cookies.get("session") or ""
     m_t = re.search(r"tenant=([0-9a-f\-]{36})", cookie)
     m_u = re.search(r"user=([0-9a-f\-]{36})", cookie)
@@ -77,6 +80,8 @@ templates.env.globals.update({
     "role_can": jinja_role_can,
 })
 
+
+# ===== RUTAS DE AUTENTICACIÓN BÁSICA =====
 
 @router.get("/", response_class=RedirectResponse)
 def root() -> RedirectResponse:
@@ -157,6 +162,8 @@ def web_logout() -> RedirectResponse:
     return response
 
 
+# ===== DASHBOARD Y NAVEGACIÓN PRINCIPAL =====
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     tenant_id, user_id = _parse_session(request)
@@ -189,6 +196,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     )
 
 
+# ===== GESTIÓN DE CLIENTES =====
+
 @router.get("/clients/new", response_class=HTMLResponse)
 def new_client(
     request: Request,
@@ -219,6 +228,8 @@ def create_client_web(
     db.commit()
     return RedirectResponse(url="/dashboard", status_code=303)
 
+
+# ===== GESTIÓN DE AUDITORÍAS =====
 
 @router.get("/audits/new", response_class=HTMLResponse)
 def new_audit(
@@ -360,6 +371,8 @@ def audit_detail(
     )
 
 
+# ===== COLA DE REVISIÓN HUMANA =====
+
 @router.get("/review-queue", response_class=HTMLResponse)
 def review_queue(
     request: Request,
@@ -425,6 +438,8 @@ def review_queue(
         },
     )
 
+
+# ===== SUBIDA Y ANÁLISIS DE EVIDENCIA =====
 
 @router.post("/audit/{audit_id}/item/{item_id}/evidence")
 @limiter.limit("20/minute")
@@ -545,7 +560,8 @@ def analyze(
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
 
 
-# ===== Constante de la Regla de Oro (portal) =====
+# ===== PORTAL DEL CLIENTE =====
+
 _PORTAL_VISIBLE_STATUSES = ("completed", "pending")
 
 
@@ -622,6 +638,8 @@ def _clause_number(db: Session, item) -> str:
     return clause.number if clause else ""
 
 
+# ===== GESTIÓN DE USUARIOS =====
+
 @router.get("/users", response_class=HTMLResponse)
 def manage_users(
     request: Request,
@@ -665,6 +683,8 @@ def invite_user(
     return RedirectResponse(url="/users", status_code=303)
 
 
+# ===== ACCIONES SOBRE ÍTEMS DE CHECKLIST =====
+
 @router.post("/audit/{audit_id}/item/{item_id}/reopen")
 def reopen_item(
     audit_id: str,
@@ -701,6 +721,8 @@ def approve_item(
     return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
 
 
+# ===== STREAMING SSE PARA ANÁLISIS EN TIEMPO REAL =====
+
 @router.get("/audit/{audit_id}/stream")
 async def stream_audit_updates(
     request: Request,
@@ -709,7 +731,6 @@ async def stream_audit_updates(
     db: Session = Depends(get_db),
 ):
     """Stream SSE para análisis en tiempo real (usa evidencia más reciente)."""
-    # Obtener evidencia más reciente de la auditoría (NO mock)
     latest_evidence = (
         db.query(EvidenceFile)
         .filter(EvidenceFile.audit_id == uuid.UUID(audit_id))
@@ -725,7 +746,6 @@ async def stream_audit_updates(
     async def event_generator():
         queue = asyncio.Queue(maxsize=10)
         
-        # Ejecutar análisis SÍNCRONO en thread pool (no bloquea event loop)
         loop = asyncio.get_event_loop()
         analysis_task = loop.run_in_executor(
             None,
@@ -763,7 +783,7 @@ async def stream_audit_updates(
     )
 
 
-# ===== Incremento 2: recuperación de contraseña (mediada por owner, un solo uso) =====
+# ===== RECUPERACIÓN DE CONTRASEÑA =====
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -797,7 +817,6 @@ def generate_reset_link(
     if not target:
         return RedirectResponse(url="/users", status_code=303)
 
-    # Invalida tokens previos sin usar de este usuario
     db.query(PasswordResetToken).filter(
         PasswordResetToken.user_id == target.id,
         PasswordResetToken.used_at.is_(None),
@@ -868,3 +887,107 @@ def web_reset_password(
         ))
     db.commit()
     return RedirectResponse(url="/login?msg=password_reset", status_code=303)
+
+
+# ===== INCREMENTO 5: ENDPOINT DE AUDIT LOGS (API JSON + UI) =====
+
+# ===== INCREMENTO 5: AUDIT LOGS UI & API =====
+
+@router.get("/audit-logs", response_class=HTMLResponse)
+def audit_logs_page(
+    request: Request,
+    membership: Membership = Depends(require_perm("manage_users")),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Página de visualización de logs de auditoría."""
+    tenant_id, user_id = _parse_session(request)
+    
+    # Obtener lista de usuarios para el filtro dropdown
+    users = db.query(User).join(Membership).filter(
+        Membership.tenant_id == membership.tenant_id
+    ).all()
+    
+    return templates.TemplateResponse(
+        request, "audit_logs.html", 
+        {
+            "users": users, 
+            "role": membership.role,
+            "tenant_id": str(membership.tenant_id)
+        }
+    )
+
+
+@router.get("/api/audit-logs")
+async def get_audit_logs(
+    request: Request,
+    entity_type: Optional[str] = Query(None),
+    entity_id: Optional[str] = Query(None),
+    actor_id: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),      # ← str, no datetime
+    end_date: Optional[str] = Query(None),         # ← str, no datetime
+    limit: int = Query(100, le=1000),
+    db: Session = Depends(get_db),
+):
+    """Consulta logs de auditoría con filtros usando sesión por cookie."""
+    tenant_id, user_id = _parse_session(request)
+    
+    if not tenant_id or not user_id:
+        return []
+
+    query = db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id)
+    
+    if entity_type:
+        query = query.filter(AuditLog.entity_type == entity_type)
+    if entity_id:
+        try:
+            query = query.filter(AuditLog.entity_id == uuid.UUID(entity_id))
+        except ValueError:
+            pass
+    if actor_id:
+        try:
+            query = query.filter(AuditLog.actor_user_id == uuid.UUID(actor_id))
+        except ValueError:
+            pass
+    
+    # Parsear fechas manualmente desde string YYYY-MM-DD
+    if start_date:
+        try:
+            from datetime import date
+            sd = date.fromisoformat(start_date)
+            query = query.filter(AuditLog.created_at >= sd)
+        except ValueError:
+            pass
+    
+    if end_date:
+        try:
+            from datetime import date, timedelta
+            ed = date.fromisoformat(end_date) + timedelta(days=1)
+            query = query.filter(AuditLog.created_at < ed)
+        except ValueError:
+            pass
+    
+    # RBAC
+    membership = db.query(Membership).filter(
+        Membership.user_id == user_id,
+        Membership.tenant_id == tenant_id,
+    ).first()
+    
+    is_admin = membership and membership.role in ("owner", "admin", "lead_auditor")
+    if not is_admin:
+        query = query.filter(AuditLog.actor_user_id == user_id)
+    
+    logs = query.order_by(AuditLog.created_at.desc()).limit(limit).all()
+    
+    return [
+        {
+            "id": str(log.id),
+            "action": log.action,
+            "entity_type": log.entity_type,
+            "entity_id": str(log.entity_id) if log.entity_id else None,
+            "actor_user_id": str(log.actor_user_id) if log.actor_user_id else None,
+            "before": log.before,
+            "after": log.after,
+            "created_at": log.created_at.isoformat()
+        }
+        for log in logs
+    ]

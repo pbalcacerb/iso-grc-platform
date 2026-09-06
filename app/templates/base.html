@@ -115,6 +115,18 @@
             {% if role_can(role, 'create_audit') %}
                 <a href="/clients/new" class="block px-3 py-2 rounded-md text-slate-300 hover:bg-slate-800 hover:text-white">+ Nuevo Cliente</a>
             {% endif %}
+
+            <!-- SECCIÓN ADMINISTRACIÓN -->
+            {% if role_can(role, 'manage_users') %}
+            <div class="pt-4 mt-4 px-3 border-t border-slate-800 text-xs uppercase tracking-wide text-slate-500">Administración</div>
+            
+            <a href="/audit-logs" class="group flex items-center px-3 py-2 text-sm font-medium text-slate-300 rounded-md hover:bg-slate-800 hover:text-white transition-colors">
+                <svg class="mr-3 flex-shrink-0 h-5 w-5 text-slate-400 group-hover:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                </svg>
+                Historial de Cambios
+            </a>
+            {% endif %}
         </nav>
         <div class="px-5 py-4 border-t border-slate-800 text-xs">
             <div class="text-slate-400 mb-2 truncate">{{ user_email | default('', true) }}</div>
@@ -128,7 +140,7 @@
             <h1 class="text-lg font-semibold text-slate-800">{% block page_title %}Panel de Control{% endblock %}</h1>
             <span class="badge badge-muted">{{ role | default('', true) }}</span>
         </header>
-       <main class="p-8">
+        <main class="p-8">
             {% block content %}{% endblock %}
         </main>
     </div>

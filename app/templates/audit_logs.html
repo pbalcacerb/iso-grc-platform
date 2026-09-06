@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Historial de Cambios - ISO GRC{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">📜 Historial de Cambios</h1>
+        <p class="mt-2 text-sm text-gray-600">Registro detallado de todas las acciones realizadas en la plataforma.</p>
+    </div>
+
+    <!-- Barra de Filtros -->
+    <div class="bg-white p-6 rounded-lg shadow mb-6 border border-gray-200">
+        <form id="log-filters" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Entidad</label>
+                <select id="entity-type" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todas las entidades</option>
+                    <option value="standard">Estándares</option>
+                    <option value="audit">Auditorías</option>
+                    <option value="client">Clientes</option>
+                    <option value="user">Usuarios</option>
+                    <option value="checklist_item">Ítems de Checklist</option>
+                    <option value="evidence_file">Evidencias</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
+                <select id="actor-id" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todos los usuarios</option>
+                    {% for u in users %}
+                    <option value="{{ u.id }}">{{ u.full_name }} ({{ u.email }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Desde</label>
+                <input type="date" id="start-date" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
+                <input type="date" id="end-date" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+        </form>
+        
+        <div class="mt-4 flex justify-end">
+            <button type="button" onclick="fetchLogs()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md transition duration-150 ease-in-out flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" /></svg>
+                Aplicar Filtros
+            </button>
+        </div>
+    </div>
+
+    <!-- Mensaje de Error / Carga -->
+    <div id="status-message" class="hidden mb-4 p-4 rounded-md"></div>
+
+    <!-- Tabla de Logs -->
+    <div class="bg-white shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha/Hora</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acción</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entidad</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Detalles</th>
+                </tr>
+            </thead>
+            <tbody id="logs-table-body" class="bg-white divide-y divide-gray-200">
+                <!-- Se llena vía JS -->
+            </tbody>
+        </table>
+        
+        <!-- Estado Vacío -->
+        <div id="empty-state" class="hidden text-center py-12">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-gray-900">No hay registros</h3>
+            <p class="mt-1 text-sm text-gray-500">No se encontraron logs con los filtros aplicados.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Diffs -->
+<div id="diff-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="closeModal()"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div class="sm:flex sm:items-start">
+                    <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">Detalle de Cambios</h3>
+                        <div class="mt-4 grid grid-cols-2 gap-4">
+                            <div>
+                                <h4 class="text-sm font-bold text-red-600 mb-2">ANTES</h4>
+                                <pre id="diff-before" class="bg-red-50 p-4 rounded text-xs overflow-x-auto border border-red-200 whitespace-pre-wrap break-words max-h-96"></pre>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-green-600 mb-2">DESPUÉS</h4>
+                                <pre id="diff-after" class="bg-green-50 p-4 rounded text-xs overflow-x-auto border border-green-200 whitespace-pre-wrap break-words max-h-96"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button type="button" onclick="closeModal()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Configuración inicial
+const API_URL = '/api/audit-logs';
+
+// Función principal para obtener y renderizar logs
+async function fetchLogs() {
+    const tbody = document.getElementById('logs-table-body');
+    const emptyState = document.getElementById('empty-state');
+    const statusMsg = document.getElementById('status-message');
+    
+    // Mostrar estado de carga
+    tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Cargando registros...</td></tr>';
+    emptyState.classList.add('hidden');
+    statusMsg.classList.add('hidden');
+
+    // Construir parámetros de query
+    const params = new URLSearchParams({
+        entity_type: document.getElementById('entity-type').value,
+        actor_id: document.getElementById('actor-id').value,
+        start_date: document.getElementById('start-date').value,
+        end_date: document.getElementById('end-date').value,
+        limit: 100
+    });
+
+    try {
+        const res = await fetch(`${API_URL}?${params}`);
+        if (!res.ok) throw new Error(`Error HTTP: ${res.status}`);
+        
+        const logs = await res.json();
+        renderLogs(logs);
+    } catch (err) {
+        console.error('Error cargando logs:', err);
+        statusMsg.className = 'mb-4 p-4 rounded-md bg-red-100 text-red-700';
+        statusMsg.textContent = `Error al cargar los registros: ${err.message}`;
+        statusMsg.classList.remove('hidden');
+        tbody.innerHTML = '';
+    }
+}
+
+// Renderizado dinámico de la tabla
+function renderLogs(logs) {
+    const tbody = document.getElementById('logs-table-body');
+    const emptyState = document.getElementById('empty-state');
+    
+    if (logs.length === 0) {
+        tbody.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        return;
+    }
+    
+    emptyState.classList.add('hidden');
+    
+    tbody.innerHTML = logs.map(log => {
+        // Determinar color del badge según acción
+        let badgeClass = 'bg-gray-100 text-gray-800';
+        if (log.action.includes('create') || log.action.includes('add')) badgeClass = 'bg-green-100 text-green-800';
+        else if (log.action.includes('update') || log.action.includes('edit')) badgeClass = 'bg-yellow-100 text-yellow-800';
+        else if (log.action.includes('delete') || log.action.includes('remove')) badgeClass = 'bg-red-100 text-red-800';
+        else if (log.action.includes('reset') || log.action.includes('password')) badgeClass = 'bg-purple-100 text-purple-800';
+
+        // Formatear fecha
+        const dateStr = new Date(log.created_at).toLocaleString('es-ES', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+
+        // Truncar IDs para visualización limpia
+        const entityIdShort = log.entity_id ? `${log.entity_id.substring(0, 8)}...` : '-';
+        const actorIdShort = log.actor_user_id ? `${log.actor_user_id.substring(0, 8)}...` : 'Sistema';
+
+        // Preparar datos para el modal
+        const beforeJson = log.before ? JSON.stringify(log.before, null, 2) : 'Sin datos previos';
+        const afterJson = log.after ? JSON.stringify(log.after, null, 2) : 'Sin datos posteriores';
+        const safeBefore = beforeJson.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const safeAfter = afterJson.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        return `
+            <tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${dateStr}</td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClass}">
+                        ${log.action.toUpperCase()}
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span class="font-mono text-xs bg-gray-100 px-2 py-1 rounded">${log.entity_type}</span>
+                    <br><span class="text-xs text-gray-400">${entityIdShort}</span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono text-xs">
+                    ${actorIdShort}
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500">
+                    <button onclick='openModal("${safeBefore}", "${safeAfter}")' 
+                            class="text-blue-600 hover:text-blue-900 font-medium text-xs flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                            <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+                        </svg>
+                        Ver Cambios
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Control del Modal de Diffs
+function openModal(before, after) {
+    document.getElementById('diff-before').textContent = before;
+    document.getElementById('diff-after').textContent = after;
+    document.getElementById('diff-modal').classList.remove('hidden');
+}
+
+function closeModal() {
+    document.getElementById('diff-modal').classList.add('hidden');
+}
+
+// Cargar logs automáticamente al iniciar la página
+document.addEventListener('DOMContentLoaded', fetchLogs);
+
+// Permitir filtrar presionando Enter en los inputs de fecha
+document.getElementById('start-date').addEventListener('keypress', (e) => { if(e.key === 'Enter') fetchLogs(); });
+document.getElementById('end-date').addEventListener('keypress', (e) => { if(e.key === 'Enter') fetchLogs(); });
+</script>
+{% endblock %}

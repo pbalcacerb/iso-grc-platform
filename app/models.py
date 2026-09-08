@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 # Imports de SQLAlchemy
-from sqlalchemy import JSON, ForeignKey, String, Integer, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Float, ForeignKey, String, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
@@ -403,6 +403,29 @@ class AuditLog(Base):
         server_default=func.now(),
         nullable=False
     )
+
+
+class PreAuditMaturityReport(Base):
+    """Informe de Madurez Preliminar generado por IA antes de la auditoría in-situ (§6.2 ISO 19011)."""
+    __tablename__ = "pre_audit_maturity_reports"
+    
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), 
+        primary_key=True, 
+        default=uuid.uuid4, 
+        server_default=func.gen_random_uuid()
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    standard_code: Mapped[str] = mapped_column(String, nullable=False)
+    document_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    maturity_score: Mapped[float] = mapped_column(Float, nullable=False)
+    gaps_identified: Mapped[list] = mapped_column(JSON, default=list)
+    risks_preliminary: Mapped[list] = mapped_column(JSON, default=list)
+    ai_recommendations: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="draft")
+    validated_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    validated_at: Mapped[Optional[datetime]] = mapped_column()
 
 
 class PasswordResetToken(Base):

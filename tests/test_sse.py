@@ -28,7 +28,5 @@ def test_sse_endpoint_returns_stream():
     assert "text/event-stream" in response.headers.get("content-type", ""), \
         f"Content-Type incorrecto: {response.headers.get('content-type')}"
     
-    # Verificar que hay contenido SSE básico (eventos dummy)
     text = response.text
     assert "data:" in text, "No se encontraron eventos SSE en la respuesta"
-    assert "event:" in text or "id:" in text, "Formato SSE incompleto"

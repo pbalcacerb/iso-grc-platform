@@ -8,11 +8,24 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 
-engine = create_engine(settings.DATABASE_URL, echo=False)
+# En db.py
+from sqlalchemy.orm import Session
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+engine = create_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-
-@contextmanager
 def get_session_with_rls(tenant_id: uuid.UUID | None, user_id: uuid.UUID | None) -> Iterator[Session]:
     """Abre una sesión y establece el contexto RLS."""
     with Session(engine) as session:
@@ -26,12 +39,3 @@ def get_session_with_rls(tenant_id: uuid.UUID | None, user_id: uuid.UUID | None)
         except Exception:
             session.rollback()
             raise
-
-
-def get_db() -> Iterator[Session]:
-    """Dependencia estándar de FastAPI."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()

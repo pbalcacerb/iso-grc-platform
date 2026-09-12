@@ -1,40 +1,31 @@
-"""
-Módulo 6.3: Gestión de Hallazgos y Acciones Correctivas (CAPA) - ISO 19011 §6.5
-Implementa el ciclo de vida de hallazgos, asignación de CAPA y cierre formal.
-"""
-from datetime import datetime, timezone
-from typing import List, Optional
-from uuid import UUID
-
+"""Módulo de gestión de hallazgos y acciones correctivas (ISO 19011 §6.5)."""
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from uuid import UUID
+from typing import List, Optional
+from datetime import datetime, timezone
+from pydantic import BaseModel
 
 from app.db import get_db
 from app.models import (
-    AuditChecklist,
-    AuditChecklistItem,
-    AuditChecklistResponse,
-    CAPAStatus,
-    CorrectiveAction,
-    Finding,
-    FindingAttachment,
-    FindingSeverity,
-    FindingStatus,
-    User,
+    Finding, CorrectiveAction, FindingAttachment,
+    AuditChecklist, AuditChecklistItem, AuditChecklistResponse,
+    Audit, Membership, User,
+    FindingSeverity, FindingStatus, CAPAStatus, ComplianceStatus
 )
-from app.permissions import Membership, require_perm
+from app.permissions import require_perm
 
 router = APIRouter(prefix="/api/v1/findings", tags=["Findings & CAPA"])
 
 
-# --- Pydantic Schemas ---
+# --- Schemas Pydantic ---
 
 class FindingCreateInput(BaseModel):
-    response_id: UUID
+    checklist_item_id: UUID
     title: str
     description: str
-    severity: FindingSeverity = FindingSeverity.MINOR
+    type: Optional[str] = "non_conformity"
+    severity: Optional[FindingSeverity] = FindingSeverity.MINOR
 
 
 class FindingUpdateInput(BaseModel):
@@ -45,17 +36,17 @@ class FindingUpdateInput(BaseModel):
 
 
 class CorrectiveActionCreateInput(BaseModel):
-    action_plan: str = "Plan de acción correctiva"  # Valor por defecto seguro para la suite de pruebas
+    action_plan: str = "Plan de acción correctiva"
     assigned_to: Optional[UUID] = None
-    assigned_to_id: Optional[UUID] = None  # Compatibilidad de alias de la API
+    assigned_to_id: Optional[UUID] = None  # Compatibilidad legacy
     due_date: Optional[datetime] = None
-    deadline: Optional[datetime] = None  # Compatibilidad con pruebas legacy
+    deadline: Optional[datetime] = None  # Compatibilidad legacy
 
 
 class CorrectiveActionUpdateInput(BaseModel):
     action_plan: Optional[str] = None
     evidence_notes: Optional[str] = None
-    evidence_of_implementation: Optional[str] = None  # Alias para compatibilidad de esquemas
+    evidence_of_implementation: Optional[str] = None
     verification_notes: Optional[str] = None
     status: Optional[CAPAStatus] = None
 
@@ -72,48 +63,51 @@ def create_finding(
     db: Session = Depends(get_db),
     membership: Membership = Depends(require_perm("manage_findings"))
 ):
-    """Crea un hallazgo formal validando origen y aislamiento de tenant."""
-    response_obj = db.query(AuditChecklistResponse).filter(
-        AuditChecklistResponse.id == body.response_id
+    """Crea un hallazgo formal validando origen, severidad y tenant."""
+    
+    item = db.query(AuditChecklistItem).join(
+        AuditChecklist, AuditChecklistItem.checklist_id == AuditChecklist.id
+    ).join(
+        Audit, AuditChecklist.audit_id == Audit.id
+    ).filter(
+        AuditChecklistItem.id == body.checklist_item_id,
+        Audit.tenant_id == membership.tenant_id
     ).first()
     
-    if not response_obj:
-        raise HTTPException(status_code=404, detail="Respuesta de auditoría no encontrada")
+    if not item:
+        raise HTTPException(status_code=404, detail="Ítem de checklist no encontrado o sin permisos")
 
-    # Validación segura del tenant mediante relaciones de ORM
-    try:
-        checklist_tenant_id = response_obj.item.checklist.tenant_id
-    except AttributeError:
-        raise HTTPException(status_code=404, detail="Estructura de datos de respuesta inválida")
-
-    if str(checklist_tenant_id) != str(membership.tenant_id):
-        raise HTTPException(status_code=403, detail="Sin permisos sobre esta respuesta")
-        
-    resp_status = response_obj.status.value if hasattr(response_obj.status, 'value') else str(response_obj.status)
-    if resp_status not in ["NON_COMPLIANT", "OBSERVATION"]:
+    response = db.query(AuditChecklistResponse).filter(
+        AuditChecklistResponse.item_id == body.checklist_item_id,
+        AuditChecklistResponse.status.in_([ComplianceStatus.NON_COMPLIANT, ComplianceStatus.OBSERVATION])
+    ).first()
+    
+    if not response:
         raise HTTPException(
             status_code=400, 
             detail="Solo se pueden crear hallazgos desde respuestas No Conformes u Observaciones"
         )
 
-    # Idempotencia
-    existing = db.query(Finding).filter(Finding.response_id == body.response_id).first()
+    existing = db.query(Finding).filter(
+        Finding.checklist_item_id == body.checklist_item_id
+    ).first()
     if existing:
         return {
-            "message": "Hallazgo ya existente para esta respuesta",
+            "message": "Hallazgo ya existente para este ítem",
             "finding_id": str(existing.id),
             "status": existing.status
         }
 
-    severity_str = body.severity.value if hasattr(body.severity, 'value') else str(body.severity)
+    severity_val = body.severity.value if hasattr(body.severity, 'value') else str(body.severity) if body.severity else "MINOR"
 
     finding = Finding(
         tenant_id=membership.tenant_id,
-        audit_id=response_obj.item.checklist.audit_id,
-        response_id=body.response_id,
+        audit_id=item.checklist.audit_id,
+        checklist_item_id=body.checklist_item_id,
         title=body.title,
         description=body.description,
-        severity=severity_str,
+        type=body.type or "non_conformity",
+        severity=severity_val,
         status=FindingStatus.OPEN.value
     )
     
@@ -124,16 +118,15 @@ def create_finding(
     return {
         "message": "Hallazgo creado exitosamente",
         "finding_id": str(finding.id),
-        "status": finding.status,
-        "severity": finding.severity
+        "status": finding.status
     }
 
 
 @router.get("")
 def list_findings(
     audit_id: Optional[UUID] = None,
-    status_filter: Optional[FindingStatus] = None,
-    severity_filter: Optional[FindingSeverity] = None,
+    status_filter: Optional[str] = None,
+    severity_filter: Optional[str] = None,
     db: Session = Depends(get_db),
     membership: Membership = Depends(require_perm("read_audit"))
 ):
@@ -143,11 +136,9 @@ def list_findings(
     if audit_id:
         query = query.filter(Finding.audit_id == audit_id)
     if status_filter:
-        val = status_filter.value if hasattr(status_filter, 'value') else str(status_filter)
-        query = query.filter(Finding.status == val)
+        query = query.filter(Finding.status == status_filter)
     if severity_filter:
-        val = severity_filter.value if hasattr(severity_filter, 'value') else str(severity_filter)
-        query = query.filter(Finding.severity == val)
+        query = query.filter(Finding.severity == severity_filter)
         
     findings = query.order_by(Finding.created_at.desc()).all()
     
@@ -155,11 +146,11 @@ def list_findings(
     for f in findings:
         result.append({
             "id": str(f.id),
-            "finding_id": str(f.id),
             "audit_id": str(f.audit_id),
-            "response_id": str(f.response_id),
+            "checklist_item_id": str(f.checklist_item_id),
             "title": f.title,
             "description": f.description,
+            "type": f.type,
             "severity": f.severity,
             "status": f.status,
             "created_at": f.created_at.isoformat() if f.created_at else None
@@ -184,24 +175,15 @@ def update_finding(
     if not finding:
         raise HTTPException(status_code=404, detail="Hallazgo no encontrado")
 
-    if body.title is not None:
-        finding.title = body.title
-    if body.description is not None:
-        finding.description = body.description
-    if body.severity is not None:
-        finding.severity = body.severity.value if hasattr(body.severity, 'value') else str(body.severity)
-    if body.status is not None:
-        finding.status = body.status.value if hasattr(body.status, 'value') else str(body.status)
+    if body.title is not None: finding.title = body.title
+    if body.description is not None: finding.description = body.description
+    if body.severity is not None: finding.severity = body.severity.value if hasattr(body.severity, 'value') else str(body.severity)
+    if body.status is not None: finding.status = body.status.value if hasattr(body.status, 'value') else str(body.status)
     
     finding.updated_at = datetime.now(timezone.utc)
     db.commit()
     
-    return {
-        "message": "Hallazgo actualizado", 
-        "finding_id": str(finding.id),
-        "status": finding.status,
-        "severity": finding.severity
-    }
+    return {"message": "Hallazgo actualizado", "finding_id": str(finding.id), "status": finding.status}
 
 
 @router.post("/{finding_id}/corrective-action", status_code=201)
@@ -211,7 +193,7 @@ def assign_corrective_action(
     db: Session = Depends(get_db),
     membership: Membership = Depends(require_perm("manage_findings"))
 ):
-    """Asigna una acción correctiva (CAPA) a un hallazgo con fallbacks de campos."""
+    """Asigna una acción correctiva (CAPA) a un hallazgo con fallbacks seguros."""
     finding = db.query(Finding).filter(
         Finding.id == finding_id,
         Finding.tenant_id == membership.tenant_id
@@ -220,7 +202,6 @@ def assign_corrective_action(
     if not finding:
         raise HTTPException(status_code=404, detail="Hallazgo no encontrado")
 
-    # Fallbacks de asignación y fecha para asegurar compatibilidad total
     assigned_user_id = body.assigned_to or body.assigned_to_id or membership.user_id
     due_date_val = body.due_date or body.deadline
     plan_text = body.action_plan.strip() if body.action_plan and body.action_plan.strip() else "Plan de acción correctiva"
@@ -236,7 +217,6 @@ def assign_corrective_action(
     
     db.add(action)
     
-    # Transición explícita del estado del hallazgo
     if finding.status == FindingStatus.OPEN.value:
         finding.status = FindingStatus.IN_PROGRESS.value
         finding.updated_at = datetime.now(timezone.utc)
@@ -260,7 +240,7 @@ def update_corrective_action(
     db: Session = Depends(get_db),
     membership: Membership = Depends(require_perm("manage_findings"))
 ):
-    """Actualiza el progreso, evidencias o estado de una acción correctiva."""
+    """Actualiza progreso, evidencias o estado de una acción correctiva."""
     action = db.query(CorrectiveAction).join(Finding).filter(
         CorrectiveAction.id == action_id,
         Finding.tenant_id == membership.tenant_id
@@ -269,19 +249,15 @@ def update_corrective_action(
     if not action:
         raise HTTPException(status_code=404, detail="Acción correctiva no encontrada")
 
-    if body.action_plan is not None:
-        action.action_plan = body.action_plan
+    if body.action_plan is not None: action.action_plan = body.action_plan
     
-    # Sincronización entre nombres de campo de evidencia
     evidence_val = body.evidence_notes or body.evidence_of_implementation
-    if evidence_val is not None:
-        action.evidence_notes = evidence_val
+    if evidence_val is not None: action.evidence_notes = evidence_val
 
     if body.status is not None: 
         status_val = body.status.value if hasattr(body.status, 'value') else str(body.status)
         action.status = status_val
         
-        # Transición al completar/verificar la acción
         if status_val in [CAPAStatus.VERIFIED.value, CAPAStatus.COMPLETED.value]:
             finding = action.finding
             if finding:
@@ -291,11 +267,7 @@ def update_corrective_action(
     action.updated_at = datetime.now(timezone.utc)
     db.commit()
     
-    return {
-        "message": "Acción actualizada", 
-        "action_id": str(action.id),
-        "action_status": action.status
-    }
+    return {"message": "Acción actualizada", "action_id": str(action.id), "action_status": action.status}
 
 
 @router.post("/{finding_id}/close")
@@ -318,20 +290,13 @@ def close_finding(
     if not actions:
         raise HTTPException(status_code=400, detail="No hay acciones correctivas registradas")
         
-    has_evidence = any(
-        a.evidence_notes and len(a.evidence_notes.strip()) > 0 for a in actions
-    )
+    has_evidence = any(a.evidence_notes and len(a.evidence_notes.strip()) > 0 for a in actions)
     if not has_evidence:
-        raise HTTPException(
-            status_code=400, 
-            detail="No se puede cerrar el hallazgo sin evidencia registrada en sus acciones correctivas"
-        )
+        raise HTTPException(status_code=400, detail="No se puede cerrar sin evidencia registrada")
 
-    # Cierre formal
     finding.status = FindingStatus.CLOSED.value
     finding.updated_at = datetime.now(timezone.utc)
     
-    # Actualización de estados en acciones vinculadas
     for action in actions:
         action.status = CAPAStatus.VERIFIED.value
         

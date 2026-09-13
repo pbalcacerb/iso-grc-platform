@@ -4,6 +4,8 @@ from fastapi import Depends, HTTPException
 from app.models import Membership
 from app.security import get_membership
 
+
+# Matriz unificada de permisos por rol
 PERMISSIONS: dict[str, set[str]] = {
     # ===== EQUIPO AUDITOR (propietario de la plataforma) =====
     "owner": {
@@ -14,6 +16,10 @@ PERMISSIONS: dict[str, set[str]] = {
         "approve_item", "reopen_item",
         "view_internal", "manage_findings", "approve_report",
         "view_portal",
+        # Permisos genéricos para Módulo 6.2
+        "execute_audit",
+        "read_audit",
+        "write_audit",
     },
     "lead_auditor": {
         "create_client", "create_audit", "manage_schedule",
@@ -21,12 +27,20 @@ PERMISSIONS: dict[str, set[str]] = {
         "draft_findings", "classify_findings",
         "approve_item", "reopen_item",
         "view_internal", "manage_findings", "approve_report",
+        # Permisos genéricos para Módulo 6.2
+        "execute_audit",
+        "read_audit",
+        "write_audit",
     },
     "auditor": {
         "create_audit", "manage_schedule",
         "upload_evidence", "evaluate_evidence",
         "draft_findings", "reopen_item",
         "view_internal", "manage_findings",
+        # Permisos genéricos para Módulo 6.2
+        "execute_audit",
+        "read_audit",
+        "write_audit",
     },
     "coordinator": {  # Revisor: trazabilidad y agenda, edición limitada (NO aprueba)
         "manage_schedule", "reopen_item", "view_internal",
@@ -36,7 +50,7 @@ PERMISSIONS: dict[str, set[str]] = {
         "view_portal",
         "upload_evidence",
         "comment",
-        },
+    },
 
     # ===== ORGANIZACIÓN AUDITADA (cliente) =====
     "client_responsible": {  # Líder ISO / Responsable
@@ -53,13 +67,17 @@ PERMISSIONS: dict[str, set[str]] = {
 
 
 def role_can(role: str | None, permission: str) -> bool:
+    """Verifica si un rol posee un permiso específico."""
     return permission in PERMISSIONS.get(role or "", set())
 
 
 def require_perm(permission: str):
-    """Dependencia FastAPI: 403 si el rol no tiene el permiso."""
+    """Dependencia FastAPI: lanza 403 si el rol no tiene el permiso requerido."""
     def dependency(membership: Membership = Depends(get_membership)) -> Membership:
         if not role_can(membership.role, permission):
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions: requires '{permission}'"
+            )
         return membership
     return dependency

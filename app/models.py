@@ -1,11 +1,12 @@
-"""Modelos SQLAlchemy 2.0 con UUID para ISO GRC Platform."""
-import enum
-import uuid
+"""
+Modelos SQLAlchemy 2.0 con UUID para la plataforma ISO GRC.
+Organizados por dominio funcional conforme a las especificaciones ISO 19011.
+"""
 from datetime import datetime
 from enum import Enum as PyEnum
 from typing import List, Optional
+import uuid
 
-# Imports de SQLAlchemy
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -20,15 +21,17 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, synonym
+
 
 class Base(DeclarativeBase):
     pass
 
 
-# ----------------------------------------------------------------------
-# Enums
-# ----------------------------------------------------------------------
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+
 class ComplianceStatus(str, PyEnum):
     COMPLIANT = "COMPLIANT"
     NON_COMPLIANT = "NON_COMPLIANT"
@@ -36,43 +39,29 @@ class ComplianceStatus(str, PyEnum):
     NA = "NA"
 
 
-class FindingSeverity(str, enum.Enum):
+class FindingSeverity(str, PyEnum):
     MINOR = "MINOR"
     MAJOR = "MAJOR"
     CRITICAL = "CRITICAL"
 
 
-class FindingStatus(str, enum.Enum):
+class FindingStatus(str, PyEnum):
     OPEN = "OPEN"
     IN_PROGRESS = "IN_PROGRESS"
     RESOLVED = "RESOLVED"
     CLOSED = "CLOSED"
 
 
-class CAPAStatus(str, enum.Enum):
+class CAPAStatus(str, PyEnum):
     PLANNED = "PLANNED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     VERIFIED = "VERIFIED"
 
 
-# ----------------------------------------------------------------------
-# Entidades Principales
-# ----------------------------------------------------------------------
-class Standard(Base):
-    __tablename__ = "standards"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
-    )
-    code: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    version: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
-
+# ==============================================================================
+# 1. SISTEMA BASE MULTI-TENANT Y AUTENTICACIÓN
+# ==============================================================================
 
 class Tenant(Base):
     __tablename__ = "tenants"
@@ -89,8 +78,7 @@ class Tenant(Base):
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), nullable=False
     )
-    
-    # Relación inversa para Hallazgos
+
     findings: Mapped[List["Finding"]] = relationship("Finding", back_populates="tenant")
 
 
@@ -120,15 +108,18 @@ class Membership(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE")
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id", ondelete="CASCADE")
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    role: Mapped[str] = mapped_column(String)
+    role: Mapped[str] = mapped_column(String, nullable=False)
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
     )
@@ -152,7 +143,51 @@ class Client(Base):
     confidentiality_level: Mapped[str] = mapped_column(
         String, default="internal", nullable=False
     )
-    status: Mapped[str] = mapped_column(String, default="active", server_default="active", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, default="active", server_default="active", nullable=False
+    )
+
+    audits: Mapped[List["Audit"]] = relationship("Audit", back_populates="client")
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), nullable=False
+    )
+
+
+# ==============================================================================
+# 2. NORMATIVA Y CATÁLOGOS STANDARD
+# ==============================================================================
+
+class Standard(Base):
+    __tablename__ = "standards"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    code: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
 
 
 class Clause(Base):
@@ -190,6 +225,10 @@ class QuestionPack(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
+# ==============================================================================
+# 3. PLANIFICACIÓN Y EJECUCIÓN DE AUDITORÍAS (ISO 19011 §6.4 - §6.6)
+# ==============================================================================
+
 class Audit(Base):
     __tablename__ = "audits"
 
@@ -213,9 +252,22 @@ class Audit(Base):
     start_date: Mapped[Optional[datetime]] = mapped_column()
     end_date: Mapped[Optional[datetime]] = mapped_column()
     lead_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    
-    # Relación inversa para Hallazgos
-    findings: Mapped[List["Finding"]] = relationship("Finding", back_populates="audit")
+
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    closed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    closing_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    client: Mapped["Client"] = relationship("Client", back_populates="audits")
+    closed_by: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[closed_by_id]
+    )
+    findings: Mapped[List["Finding"]] = relationship(
+        "Finding", back_populates="audit", cascade="all, delete-orphan"
+    )
 
 
 class ChecklistItem(Base):
@@ -241,8 +293,116 @@ class ChecklistItem(Base):
     )
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
     response: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, default="", nullable=True)
+    findings_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+
+class AuditChecklist(Base):
+    __tablename__ = "audit_checklists"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    audit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("audits.id"), nullable=False
+    )
+    standard_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="")
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), default="in_progress")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    items: Mapped[List["AuditChecklistItem"]] = relationship(
+        "AuditChecklistItem",
+        back_populates="checklist",
+        cascade="all, delete-orphan",
+    )
+
+
+class AuditChecklistItem(Base):
+    __tablename__ = "audit_checklist_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    checklist_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("audit_checklists.id"), nullable=False
+    )
+    clause_ref: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    weight: Mapped[int] = mapped_column(Integer, default=1)
+    category: Mapped[Optional[str]] = mapped_column(String(100))
+
+    checklist: Mapped["AuditChecklist"] = relationship(
+        "AuditChecklist", back_populates="items"
+    )
+    responses: Mapped[List["AuditChecklistResponse"]] = relationship(
+        "AuditChecklistResponse",
+        back_populates="item",
+        cascade="all, delete-orphan",
+    )
+
+
+class AuditChecklistResponse(Base):
+    __tablename__ = "audit_checklist_responses"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("audit_checklist_items.id"), nullable=False
+    )
+    evidence_file_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("evidence_files.id"), nullable=True
+    )
+    auditor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    status: Mapped[ComplianceStatus] = mapped_column(
+        Enum(ComplianceStatus, name="compliancestatus", values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ComplianceStatus.NON_COMPLIANT,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=False)
+    responded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    checklist_item_id = synonym("item_id")
+
+    item: Mapped["AuditChecklistItem"] = relationship(
+        "AuditChecklistItem", back_populates="responses"
+    )
+    evidence: Mapped[Optional["EvidenceFile"]] = relationship(
+        "EvidenceFile", foreign_keys=[evidence_file_id]
+    )
+
+    def __init__(self, **kwargs):
+        kwargs.pop("audit_id", None)
+        super().__init__(**kwargs)
+
+    @property
+    def audit_id(self):
+        if self.item and self.item.checklist:
+            return self.item.checklist.audit_id
+        return None
+
+
+# ==============================================================================
+# 4. GESTIÓN DE EVIDENCIAS Y MOTOR VECTORIAL RAG
+# ==============================================================================
 
 class EvidenceFile(Base):
     __tablename__ = "evidence_files"
@@ -349,6 +509,10 @@ class EvidenceVector(Base):
     dim: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+# ==============================================================================
+# 5. ASISTENCIA DE IA Y TRABAJOS ASÍNCRONOS
+# ==============================================================================
+
 class AIJob(Base):
     __tablename__ = "ai_jobs"
 
@@ -414,32 +578,7 @@ class AIAnalysis(Base):
     )
 
 
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
-    )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False
-    )
-    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    action: Mapped[str] = mapped_column(String, nullable=False)
-    entity_type: Mapped[str] = mapped_column(String, nullable=False)
-    entity_id: Mapped[Optional[uuid.UUID]] = mapped_column()
-    before: Mapped[Optional[str]] = mapped_column(JSON)
-    after: Mapped[Optional[str]] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), nullable=False
-    )
-
-
 class PreAuditMaturityReport(Base):
-    """Informe de Madurez Preliminar generado por IA antes de la auditoría in-situ (§6.2 ISO 19011)."""
-
     __tablename__ = "pre_audit_maturity_reports"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -463,125 +602,18 @@ class PreAuditMaturityReport(Base):
     validated_at: Mapped[Optional[datetime]] = mapped_column()
 
 
-class PasswordResetToken(Base):
-    __tablename__ = "password_reset_tokens"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    expires_at: Mapped[datetime] = mapped_column(nullable=False)
-    used_at: Mapped[Optional[datetime]] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), nullable=False
-    )
-
-
-class AuditChecklist(Base):
-    """Cabecera de checklist vinculado a una auditoría específica."""
-
-    __tablename__ = "audit_checklists"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
-    )
-    audit_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("audits.id"), nullable=False
-    )
-    standard_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id"), nullable=False
-    )
-    status: Mapped[str] = mapped_column(
-        String(20), default="in_progress"
-    )  # draft, in_progress, completed
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-    items: Mapped[List["AuditChecklistItem"]] = relationship(
-        "AuditChecklistItem",
-        back_populates="checklist",
-        cascade="all, delete-orphan",
-    )
-
-
-class AuditChecklistItem(Base):
-    """Plantilla de cláusula/requisito vinculada a AuditChecklist."""
-
-    __tablename__ = "audit_checklist_items"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
-    )
-    checklist_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("audit_checklists.id"), nullable=False
-    )
-    clause_ref: Mapped[str] = mapped_column(String(50), nullable=False)  # ej: "A.8.1.1"
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    weight: Mapped[int] = mapped_column(Integer, default=1)
-    category: Mapped[Optional[str]] = mapped_column(String(100))
-
-    checklist: Mapped["AuditChecklist"] = relationship("AuditChecklist", back_populates="items")
-    responses: Mapped[List["AuditChecklistResponse"]] = relationship(
-        "AuditChecklistResponse",
-        back_populates="item",
-        cascade="all, delete-orphan",
-    )
-
-
-class AuditChecklistResponse(Base):
-    __tablename__ = "audit_checklist_responses"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
-    )
-    item_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("audit_checklist_items.id"), nullable=False
-    )
-    evidence_file_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("evidence_files.id")
-    )
-    auditor_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id"), nullable=False
-    )
-    status: Mapped[ComplianceStatus] = mapped_column(
-        Enum(ComplianceStatus), nullable=False
-    )
-    notes: Mapped[Optional[str]] = mapped_column(Text)
-    responded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-    item: Mapped["AuditChecklistItem"] = relationship("AuditChecklistItem", back_populates="responses")
-    evidence: Mapped[Optional["EvidenceFile"]] = relationship("EvidenceFile", foreign_keys=[evidence_file_id])
-
-
-# ----------------------------------------------------------------------
-# Hallazgos y Acciones Correctivas (CAPA) - ISO 19011 §6.5
-# ----------------------------------------------------------------------
+# ==============================================================================
+# 6. HALLAZGOS Y ACCIONES CORRECTIVAS (CAPA) - ISO 19011 §6.5
+# ==============================================================================
 
 class Finding(Base):
     __tablename__ = "findings"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
@@ -589,29 +621,30 @@ class Finding(Base):
     audit_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("audits.id"), nullable=False, index=True
     )
-    # ✅ CORREGIDO: nullable=True porque algunos hallazgos pueden crearse manualmente sin respuesta origen
-    response_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("audit_checklist_responses.id"), nullable=True, unique=True
-    )
-    checklist_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("checklist_items.id"), nullable=True
+    checklist_item_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("audit_checklist_items.id"), nullable=False, index=True
     )
     analysis_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("ai_analyses.id"), nullable=True
     )
 
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str] = mapped_column(String(50), default="non_conformity", nullable=False)
-    severity: Mapped[str] = mapped_column(String(50), default=FindingSeverity.MINOR.value, nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default=FindingStatus.OPEN.value, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    severity: Mapped[str] = mapped_column(String(50), default="MINOR", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="OPEN", nullable=False)
     ai_suggested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
-    # Relaciones
     corrective_actions: Mapped[List["CorrectiveAction"]] = relationship(
         "CorrectiveAction", back_populates="finding", cascade="all, delete-orphan"
     )
@@ -620,13 +653,17 @@ class Finding(Base):
     )
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="findings")
     audit: Mapped["Audit"] = relationship("Audit", back_populates="findings")
+    checklist_item: Mapped[Optional["AuditChecklistItem"]] = relationship("AuditChecklistItem")
 
 
 class CorrectiveAction(Base):
     __tablename__ = "corrective_actions"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
@@ -639,14 +676,27 @@ class CorrectiveAction(Base):
     )
 
     action_plan: Mapped[str] = mapped_column(Text, nullable=False)
-    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_date: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     evidence_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(50), default=CAPAStatus.PLANNED.value, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50), default=CAPAStatus.PLANNED.value, nullable=False
+    )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
-    finding: Mapped["Finding"] = relationship("Finding", back_populates="corrective_actions")
+    finding: Mapped["Finding"] = relationship(
+        "Finding", back_populates="corrective_actions"
+    )
     assignee: Mapped["User"] = relationship("User", foreign_keys=[assigned_to])
 
 
@@ -654,13 +704,45 @@ class FindingAttachment(Base):
     __tablename__ = "finding_attachments"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
     )
     finding_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("findings.id"), nullable=False, index=True
     )
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     finding: Mapped["Finding"] = relationship("Finding", back_populates="attachments")
+
+
+# ==============================================================================
+# 7. LOGS DE SISTEMA Y AUDITORÍA DE ACCIONES
+# ==============================================================================
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False
+    )
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    entity_id: Mapped[Optional[uuid.UUID]] = mapped_column()
+    before: Mapped[Optional[str]] = mapped_column(JSON)
+    after: Mapped[Optional[str]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), nullable=False
+    )

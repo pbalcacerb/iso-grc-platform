@@ -13,7 +13,7 @@ from app.db import engine
 def seed_demo_data() -> None:
     ph = argon2.PasswordHasher()
     with engine.begin() as conn:
-        # 1) Estándar (idempotente por unique code)
+        # 1) Estándar (idempotente por código único)
         conn.execute(text("""
             INSERT INTO standards (id, code, name, version, status)
             VALUES (gen_random_uuid(), 'ISO9001-DEMO', 'ISO 9001 Demo Fixture', '2015', 'active')
@@ -27,6 +27,7 @@ def seed_demo_data() -> None:
         clause_count = conn.execute(text(
             "SELECT count(*) FROM clauses WHERE standard_id = :s"
         ), {"s": std_id}).scalar()
+
         if clause_count == 0:
             clauses = [
                 ("4", "Contexto de la organización"), ("5", "Liderazgo"),
@@ -61,8 +62,8 @@ def seed_demo_data() -> None:
 
         # 3) Cuenta demo + tenant + cliente + auditoría
         tenant_id = conn.execute(text(
-            "INSERT INTO tenants (name, slug) "
-            "VALUES ('Tenant Demo', 'demo-tenant') "
+            "INSERT INTO tenants (name, slug, status) "
+            "VALUES ('Tenant Demo', 'demo-tenant', 'active') "
             "ON CONFLICT (slug) DO NOTHING RETURNING id"
         )).scalar()
 
@@ -71,7 +72,7 @@ def seed_demo_data() -> None:
                 "SELECT id FROM tenants WHERE slug = 'demo-tenant'"
             )).scalar()
 
-        # Registro unificado de usuarios demo con nuevos roles
+        # Registro unificado de usuarios demo con roles correspondientes
         demo_users = [
             ("demo@grc.com", "Owner Demo", "owner"),
             ("lead@grc.com", "Auditor Líder", "lead_auditor"),
@@ -83,30 +84,36 @@ def seed_demo_data() -> None:
         ]
         for email, full, role in demo_users:
             conn.execute(text(
-                "INSERT INTO users (email, password_hash, full_name) "
-                "VALUES (:e, :h, :f) ON CONFLICT (email) DO NOTHING"
+                "INSERT INTO users (email, password_hash, full_name, status) "
+                "VALUES (:e, :h, :f, 'active') ON CONFLICT (email) DO NOTHING"
             ), {"e": email, "h": ph.hash("SecurePass123!"), "f": full})
+            
             uid = conn.execute(text(
                 "SELECT id FROM users WHERE email = :e"), {"e": email}).scalar()
+            
             conn.execute(text(
                 "INSERT INTO memberships (user_id, tenant_id, role) "
                 "SELECT :u, :t, :r WHERE NOT EXISTS ("
                 "SELECT 1 FROM memberships WHERE user_id = :u AND tenant_id = :t)"
             ), {"u": uid, "t": tenant_id, "r": role})
 
-        # Estructura cliente y auditoría demo si no existe
+        # Estructura cliente y auditoría demo si no existen
         client_count = conn.execute(text(
             "SELECT count(*) FROM clients WHERE tenant_id = :t"
         ), {"t": tenant_id}).scalar()
+
+        rows = []
         if client_count == 0:
+            # Inserción ajustada con status 'active' para clientes
             client_id = conn.execute(text(
-                "INSERT INTO clients (tenant_id, name, sector, country) "
-                "VALUES (:t, 'Cliente Piloto S.A.', 'Tecnología', 'DO') RETURNING id"
+                "INSERT INTO clients (id, tenant_id, name, sector, country, confidentiality_level, status) "
+                "VALUES (gen_random_uuid(), :t, 'Cliente Piloto S.A.', 'Tecnología', 'DO', 'internal', 'active') RETURNING id"
             ), {"t": tenant_id}).scalar()
 
+            # Inserción ajustada con status 'in_progress' para auditorías
             audit_id = conn.execute(text(
-                "INSERT INTO audits (tenant_id, client_id, standard_id, name) "
-                "VALUES (:t, :c, :s, 'Auditoría ISO 9001 Demo') RETURNING id"
+                "INSERT INTO audits (id, tenant_id, client_id, standard_id, name, status) "
+                "VALUES (gen_random_uuid(), :t, :c, :s, 'Auditoría ISO 9001 Demo', 'in_progress') RETURNING id"
             ), {"t": tenant_id, "c": client_id, "s": std_id}).scalar()
 
             rows = conn.execute(text(
@@ -114,13 +121,14 @@ def seed_demo_data() -> None:
                 "JOIN question_packs qp ON qp.clause_id = c.id "
                 "WHERE c.standard_id = :s"
             ), {"s": std_id}).all()
+
             for cid, qpid in rows:
                 conn.execute(text(
-                    "INSERT INTO checklist_items (tenant_id, audit_id, clause_id, question_pack_id) "
-                    "VALUES (:t, :a, :c, :q)"
+                    "INSERT INTO checklist_items (tenant_id, audit_id, clause_id, question_pack_id, status, response) "
+                    "VALUES (:t, :a, :c, :q, 'pending', '')"
                 ), {"t": tenant_id, "a": audit_id, "c": cid, "q": qpid})
 
-    print("✅ Demo data seeded successfully (idempotent).")
+        print("✅ Demo data seeded successfully (idempotent).")
 
 
 if __name__ == "__main__":

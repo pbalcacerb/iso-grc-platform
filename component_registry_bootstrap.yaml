@@ -1,0 +1,68 @@
+version: "1.0.0"
+project: "ISO-GRC Platform"
+description: "Component registry and bootstrap manifest discovered by GAEA Component Discovery Agent"
+
+components:
+  - id: api_core
+    name: "FastAPI Core Application"
+    type: "backend_api"
+    entrypoint: "app.main:app"
+    path: "app/main.py"
+    dependencies:
+      - database
+      - security
+      - worker
+
+  - id: web_interface
+    name: "Web Server-Rendered Interface"
+    type: "ssr_ui"
+    path: "app/web.py"
+    templates_path: "app/templates"
+    dependencies:
+      - database
+      - security
+      - worker
+
+  - id: database_persistence
+    name: "SQLAlchemy ORM & Database Layer"
+    type: "persistence"
+    path: "app/db.py"
+    models_path: "app/models.py"
+    migrations_path: "db/migrations"
+
+  - id: ai_worker
+    name: "Compliance Assessment Worker & AI Integration"
+    type: "worker_ai"
+    path: "app/worker/assess.py"
+    ai_providers_path: "app/ai/providers.py"
+    utils_path: "app/utils/"
+
+  - id: security_rbac
+    name: "Authentication & Role-Based Access Control"
+    type: "security"
+    files:
+      - "app/security.py"
+      - "app/permissions.py"
+
+  - id: seed_scripts
+    name: "Initialization & Demo Seed Scripts"
+    type: "bootstrap_scripts"
+    path: "scripts/seed_demo.py"
+
+  - id: test_suite
+    name: "Pytest Automated Test Suite"
+    type: "testing"
+    path: "tests/"
+    config: "pyproject.toml"
+
+configuration:
+  server:
+    host: "127.0.0.1"
+    port: 8000
+    reload: true
+  database:
+    engine: "postgresql / sqlite"
+    migration_tool: "alembic"
+  security:
+    password_hashing: "argon2"
+    session_management: "signed_cookies"

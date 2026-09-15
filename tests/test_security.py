@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -30,25 +31,61 @@ CLIENT_B = uuid.uuid4()
 @pytest.fixture(scope="session")
 def bootstrap() -> Iterator[Engine]:
     maintenance = create_engine("postgresql+psycopg://grc:grc@localhost:5432/postgres")
-    with maintenance.connect() as conn:
-        conn.execution_options(isolation_level="AUTOCOMMIT")
-        conn.execute(text(
-            "DO $$ BEGIN IF NOT EXISTS "
-            "(SELECT FROM pg_roles WHERE rolname='grc_owner') THEN "
-            "CREATE ROLE grc_owner LOGIN PASSWORD 'grc_owner' NOBYPASSRLS; "
-            "END IF; END $$"
-        ))
-        conn.execute(text(
-            "DO $$ BEGIN IF NOT EXISTS "
-            "(SELECT FROM pg_roles WHERE rolname='grc_app') THEN "
-            "CREATE ROLE grc_app LOGIN PASSWORD 'grc_app' NOBYPASSRLS; "
-            "END IF; END $$"
-        ))
+    try:
+        with maintenance.connect() as conn:
+            conn.execution_options(isolation_level="AUTOCOMMIT")
+            conn.execute(text(
+                "DO $$ BEGIN IF NOT EXISTS "
+                "(SELECT FROM pg_roles WHERE rolname='grc_owner') THEN "
+                "CREATE ROLE grc_owner LOGIN PASSWORD 'grc_owner' NOBYPASSRLS; "
+                "END IF; END $$"
+            ))
+            conn.execute(text(
+                "DO $$ BEGIN IF NOT EXISTS "
+                "(SELECT FROM pg_roles WHERE rolname='grc_app') THEN "
+                "CREATE ROLE grc_app LOGIN PASSWORD 'grc_app' NOBYPASSRLS; "
+                "END IF; END $$"
+            ))
 
-    with maintenance.connect() as conn:
-        conn.execution_options(isolation_level="AUTOCOMMIT")
-        conn.execute(text("DROP DATABASE IF EXISTS grc_test WITH (FORCE)"))
-        conn.execute(text("CREATE DATABASE grc_test OWNER grc_owner"))
+        max_attempts = 5
+        success = False
+        last_exception = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with maintenance.connect() as conn:
+                    conn.execution_options(isolation_level="AUTOCOMMIT")
+                    conn.execute(text("DROP DATABASE IF EXISTS grc_test WITH (FORCE)"))
+                    
+                    # Verificar que grc_test ya no existe en pg_database
+                    res = conn.execute(
+                        text("SELECT 1 FROM pg_database WHERE datname = 'grc_test'")
+                    ).fetchone()
+                    if res:
+                        time.sleep(0.5)
+                        continue
+
+                    conn.execute(text("CREATE DATABASE grc_test OWNER grc_owner"))
+
+                    # Verificar que grc_test existe en pg_database
+                    res_created = conn.execute(
+                        text("SELECT 1 FROM pg_database WHERE datname = 'grc_test'")
+                    ).fetchone()
+                    if not res_created:
+                        time.sleep(0.5)
+                        continue
+
+                success = True
+                break
+            except Exception as ex:
+                last_exception = ex
+                time.sleep(0.5 * attempt)
+
+        if not success:
+            raise RuntimeError(f"No se pudo recrear la base grc_test tras {max_attempts} intentos: {last_exception}")
+
+    finally:
+        maintenance.dispose()
 
     with create_engine(BOOT_URL).connect() as conn:
         conn.execution_options(isolation_level="AUTOCOMMIT")

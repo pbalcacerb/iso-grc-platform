@@ -1,20 +1,22 @@
-"""Router de Ejecución de Auditorías - Módulo de Checklist, Respuestas y Hallazgos."""
+"""Router de Ejecución de Auditorías - Módulo de Checklist, Respuestas, Evidencias y Hallazgos."""
 import logging
+from typing import Any, Dict, Optional, Set
 from uuid import UUID
-from typing import Optional, Dict, Any, Set
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.worker.assess import assess_item
 
 logger = logging.getLogger("iso-grc.audit_execution")
 
 router = APIRouter(
     prefix="/api/v1/audit-execution",
-    tags=["Audit Execution"]
+    tags=["Audit Execution"],
 )
 
 
@@ -34,7 +36,6 @@ def format_item(row_dict: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(v, UUID):
             item[k] = str(v)
     
-    # Asegurar claves consistentes para el frontend/tests
     item["item_id"] = str(item.get("id", ""))
     item["clause_id"] = str(item["clause_id"]) if item.get("clause_id") else None
     item["question_pack_id"] = str(item["question_pack_id"]) if item.get("question_pack_id") else None
@@ -53,7 +54,6 @@ def check_tenant_access(audit_tenant_id: UUID, request: Request, db: Session) ->
     user_ids: Set[str] = set()
     user_emails: Set[str] = set()
 
-    # 1. EXTRAER DESDE COOKIES (Fuente primaria para TestClient)
     session_cookie = request.cookies.get("session") or request.cookies.get("sid")
     if session_cookie:
         try:
@@ -65,7 +65,6 @@ def check_tenant_access(audit_tenant_id: UUID, request: Request, db: Session) ->
         except (ValueError, AttributeError):
             pass
 
-    # 2. EXTRAER DESDE request.state (Seguro, sin lanzar AssertionError)
     if hasattr(request, "state"):
         st = request.state
         t = getattr(st, "tenant_id", None) or getattr(st, "tenant", None)
@@ -80,7 +79,6 @@ def check_tenant_access(audit_tenant_id: UUID, request: Request, db: Session) ->
         if e:
             user_emails.add(str(e))
 
-    # 3. EXTRAER DESDE request.scope/session (Solo si existe)
     session_data = None
     if "session" in request.scope:
         session_data = request.scope["session"]
@@ -101,11 +99,9 @@ def check_tenant_access(audit_tenant_id: UUID, request: Request, db: Session) ->
             if v:
                 user_emails.add(str(v))
 
-    # 4. ACCESO CONCEDIDO SI EL TENANT COINCIDE DIRECTAMENTE
     if audit_tenant_str in tenant_ids:
         return
 
-    # 5. VALIDAR MEMBRESÍA EN BD POR USER_ID
     for uid in user_ids:
         try:
             membership = db.execute(
@@ -124,7 +120,6 @@ def check_tenant_access(audit_tenant_id: UUID, request: Request, db: Session) ->
         except Exception:
             continue
 
-    # 6. VALIDAR MEMBRESÍA EN BD POR EMAIL
     for email in user_emails:
         try:
             membership_email = db.execute(
@@ -140,7 +135,6 @@ def check_tenant_access(audit_tenant_id: UUID, request: Request, db: Session) ->
         except Exception:
             continue
 
-    # 7. DENEGAR ACCESO
     raise HTTPException(status_code=403, detail="Acceso denegado: tenant no autorizado")
 
 
@@ -232,6 +226,91 @@ def get_checklist(audit_id: UUID, request: Request, db: Session = Depends(get_db
         "audit_id": str(audit_id),
         "total_items": len(formatted_items),
         "items": formatted_items
+    }
+
+
+@router.post("/{audit_id}/item/{item_id}/evidence")
+@router.post("/{audit_id}/items/{item_id}/evidence")
+async def upload_checklist_item_evidence(
+    audit_id: UUID,
+    item_id: UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    """Carga de evidencia para un ítem de checklist con desencadenamiento de worker asíncrono."""
+    audit = db.execute(
+        text("SELECT tenant_id FROM audits WHERE id = CAST(:id AS UUID)"),
+        {"id": str(audit_id)}
+    ).fetchone()
+
+    if not audit:
+        raise HTTPException(status_code=404, detail="Auditoría no encontrada")
+
+    check_tenant_access(audit.tenant_id, request, db)
+    tenant_id = audit.tenant_id
+
+    item = db.execute(
+        text("SELECT id FROM checklist_items WHERE id = CAST(:i AS UUID) AND audit_id = CAST(:a AS UUID)"),
+        {"i": str(item_id), "a": str(audit_id)}
+    ).fetchone()
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Ítem de checklist no encontrado")
+
+    evidence_id = None
+    if file:
+        file_bytes = await file.read()
+        filename = file.filename or "evidencia.pdf"
+        try:
+            res = db.execute(
+                text("""
+                    INSERT INTO evidence_files (id, tenant_id, file_name, file_path, file_size, mime_type)
+                    VALUES (gen_random_uuid(), CAST(:t AS UUID), :fn, :fp, :fs, :mime)
+                    RETURNING id
+                """),
+                {
+                    "t": str(tenant_id),
+                    "fn": filename,
+                    "fp": f"uploads/{tenant_id}/{filename}",
+                    "fs": len(file_bytes),
+                    "mime": file.content_type or "application/octet-stream"
+                }
+            ).fetchone()
+            if res:
+                evidence_id = res[0]
+        except Exception:
+            pass
+
+    db.execute(
+        text("""
+            UPDATE checklist_items
+            SET status = 'in_review', notes = 'Evidencia recibida. Procesando análisis de IA...'
+            WHERE id = CAST(:i AS UUID)
+        """),
+        {"i": str(item_id)}
+    )
+    db.commit()
+
+    background_tasks.add_task(
+        assess_item,
+        checklist_item_id=item_id,
+        audit_id=audit_id,
+        evidence_file_id=evidence_id,
+        db=None,
+        tenant_id=tenant_id
+    )
+
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header or request.method == "POST":
+        return RedirectResponse(url=f"/audit/{audit_id}", status_code=303)
+
+    return {
+        "message": "Evidencia subida e inicio de análisis en segundo plano",
+        "item_id": str(item_id),
+        "status": "in_review",
+        "evidence_id": str(evidence_id) if evidence_id else None
     }
 
 

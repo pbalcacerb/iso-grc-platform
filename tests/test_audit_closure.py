@@ -2,7 +2,7 @@
 import uuid
 import pytest
 from app.models import User, Membership, Finding, CorrectiveAction, CAPAStatus, FindingSeverity
-
+from tests.test_findings_management import create_full_audit_context
 
 def create_closed_finding_context(db_session, tenant_id: uuid.UUID):
     """Crea contexto completo con hallazgos cerrados para tests de cierre."""
@@ -10,12 +10,12 @@ def create_closed_finding_context(db_session, tenant_id: uuid.UUID):
     membership = db_session.query(Membership).filter(
         Membership.tenant_id == tenant_id
     ).first()
+
     if not membership:
         pytest.skip(f"No hay membresías para tenant {tenant_id}")
     
     auditor_id = membership.user_id
-    
-    from tests.test_findings_management import create_full_audit_context
+
     response_obj, item = create_full_audit_context(db_session, tenant_id, auditor_id)
     
     finding = Finding(

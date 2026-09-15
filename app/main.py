@@ -68,6 +68,7 @@ app.include_router(web_router)
 # Inclusión defensiva de routers de módulos de negocio
 try:
     from app.audits import router as audits_router
+
     app.include_router(audits_router)
     logger.info("✅ Router AUDITS incluido.")
 except ImportError as e:
@@ -75,6 +76,7 @@ except ImportError as e:
 
 try:
     from app.audit_execution import router as audit_execution_router
+
     app.include_router(audit_execution_router)
     logger.info("✅ Router AUDIT_EXECUTION incluido.")
 except ImportError as e:
@@ -82,6 +84,7 @@ except ImportError as e:
 
 try:
     from app.findings import router as findings_router
+
     app.include_router(findings_router)
     logger.info("✅ Router FINDINGS incluido.")
 except ImportError as e:

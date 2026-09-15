@@ -104,8 +104,7 @@ class Membership(Base):
     __tablename__ = "memberships"
     __table_args__ = (
         UniqueConstraint("user_id", "tenant_id"),
-        {"schema": "public"},
-    )
+)
 
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -622,7 +621,10 @@ class Finding(Base):
         PG_UUID(as_uuid=True), ForeignKey("audits.id"), nullable=False, index=True
     )
     checklist_item_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("audit_checklist_items.id"), nullable=False, index=True
+        PG_UUID(as_uuid=True),
+        ForeignKey("audit_checklist_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     analysis_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("ai_analyses.id"), nullable=True

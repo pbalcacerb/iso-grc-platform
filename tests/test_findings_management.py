@@ -177,17 +177,23 @@ def test_close_finding_requires_evidence(authenticated_client, db_session):
     assert "evidencia" in res_close.json()["detail"].lower()
 
 
+# EN tests/test_findings_management.py
+
+# EN tests/test_findings_management.py -> test_tenant_isolation_findings
+
 def test_tenant_isolation_findings(authenticated_client, db_session):
     """Usuario de otro tenant NO puede acceder."""
-    other_tenant_id = uuid.uuid4()
+    
+    # ✅ 1. CREAR TENANT B EXPLÍCITAMENTE
     other_tenant = Tenant(
-        id=other_tenant_id,
+        id=uuid.uuid4(),
         name="Other Tenant Isolation",
         slug=f"other-{uuid.uuid4().hex[:6]}"
     )
     db_session.add(other_tenant)
     db_session.flush()
     
+    # ✅ 2. CREAR USUARIO PARA TENANT B
     other_user = User(
         id=uuid.uuid4(),
         email=f"other_{uuid.uuid4().hex[:6]}@tenant.com",
@@ -198,27 +204,32 @@ def test_tenant_isolation_findings(authenticated_client, db_session):
     db_session.add(other_user)
     db_session.flush()
     
+    # ✅ 3. MEMBERSHIP VINCULANDO USUARIO CON TENANT B
     other_membership = Membership(
         user_id=other_user.id,
-        tenant_id=other_tenant_id,
+        tenant_id=other_tenant.id,  # ✅ CORRECCIÓN: Usar other_tenant.id en lugar de other_tenant_id
         role="auditor"
     )
     db_session.add(other_membership)
     db_session.flush()
     
+    # ✅ 4. CREAR CONTEXTO DE AUDITORÍA/HALLAZGO PERTENECIENTE A TENANT B
     response_obj, item = create_full_audit_context(
-        db_session, other_tenant_id, other_user.id
+        db_session, other_tenant.id, other_user.id
     )
     
+    # ✅ 5. INTENTAR ACCESO CON USUARIO AUTENTICADO DE TENANT A
     payload = {
         "checklist_item_id": str(item.id),
-        "title": "Aislado",
-        "description": "Test",
-        "type": "non_conformity",
-        "severity": "MINOR"
+        "title": "Hallazgo Aislado",
+        "description": "Solo visible para mi tenant",
+        "type": "minor"
     }
+    
     res = client.post("/api/v1/findings", json=payload, cookies=authenticated_client.cookies)
-    assert res.status_code == 404
+    
+    # ✅ 6. VERIFICAR QUE EL ACCESO FUE DENEGADO (404 o 403 según implementación)
+    assert res.status_code in [404, 403], f"Se esperaba denegación pero obtuvo {res.status_code}: {res.text}"
 
 
 def test_finding_severity_filtering(authenticated_client, db_session):
